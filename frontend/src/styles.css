@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  @keyframes scan {
+    0% {
+      transform: translateY(0);
+    }
+    100% {
+      transform: translateY(192px);
+    }
+  }
+  
+  .animate-scan {
+    animation: scan 2s linear infinite;
+  }
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background: #0f1117;
+  color: #f4f6fb;
+  min-height: 100vh;
+}
+
+.glass-panel {
+  @apply bg-surface/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-card;
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, #29d3c3 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

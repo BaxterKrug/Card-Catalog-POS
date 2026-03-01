@@ -1,0 +1,2 @@
+[console_scripts]
+checkout-designator = checkoutdesignator.cli:app
