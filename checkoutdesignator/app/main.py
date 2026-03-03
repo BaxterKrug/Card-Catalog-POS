@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .. import __version__
 from ..config import get_settings
 from ..database import init_db, session_scope
-from ..routers import buylist, customers, health, inventory, orders, preorders, users
+from ..routers import admin, backup, buylist, checklist, customers, health, inventory, orders, preorders, users
 from ..services import users as user_service
 
 settings = get_settings()
@@ -30,11 +30,14 @@ def startup_event() -> None:
 
 
 api_router.include_router(health.router)
+api_router.include_router(backup.router)
 api_router.include_router(buylist.router)
+api_router.include_router(checklist.router)
 api_router.include_router(customers.router)
 api_router.include_router(inventory.router)
 api_router.include_router(orders.router)
 api_router.include_router(preorders.router)
+api_router.include_router(admin.router)
 api_router.include_router(users.router)
 
 app.include_router(api_router)

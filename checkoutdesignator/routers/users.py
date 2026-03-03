@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from ..api import raise_http_error
-from ..auth import create_access_token
+from ..auth import create_access_token, get_current_user
 from ..dependencies import db_session
 from ..exceptions import CardPosError, ValidationError
-from ..schemas import LoginRequest, LoginResponse, UserCreate, UserRead
+from ..models import User, UserRole
+from ..schemas import LoginRequest, LoginResponse, UserCreate, UserRead, UserUpdate
 from ..services import users as user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -34,6 +35,24 @@ def list_users(session: Session = Depends(db_session)) -> list[UserRead]:
 def create_user(payload: UserCreate, session: Session = Depends(db_session)) -> UserRead:
     try:
         user = user_service.create_user(session, payload)
+    except CardPosError as exc:
+        raise_http_error(exc)
+    return _serialize_user(user)
+
+
+@router.patch("/{user_id}", response_model=UserRead)
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    session: Session = Depends(db_session),
+    current_user: User = Depends(get_current_user)
+) -> UserRead:
+    # Only owners can update users
+    if current_user.role != UserRole.OWNER:
+        raise ValidationError("Only owners can update user information")
+    
+    try:
+        user = user_service.update_user(session, user_id, payload)
     except CardPosError as exc:
         raise_http_error(exc)
     return _serialize_user(user)

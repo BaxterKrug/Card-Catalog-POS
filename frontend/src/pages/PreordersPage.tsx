@@ -15,6 +15,9 @@ const PreordersPage = () => {
   const [editingItem, setEditingItem] = useState<PreorderItem | null>(null);
   const [editingClaim, setEditingClaim] = useState<PreorderClaim | null>(null);
   const [selectedGameFilter, setSelectedGameFilter] = useState<string>("all");
+  const [viewingItemClaims, setViewingItemClaims] = useState<PreorderItem | null>(null);
+  const [viewingOrderClaims, setViewingOrderClaims] = useState<number | null>(null);
+  const [selectedCustomerForNewClaim, setSelectedCustomerForNewClaim] = useState<number | null>(null);
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
@@ -110,9 +113,9 @@ const PreordersPage = () => {
 
   // Calculate total paid and unpaid claims
   const paidClaims = preorderClaims.filter(c => c.is_paid);
-  const unpaidClaims = preorderClaims.filter(c => !c.is_paid && c.status !== 'cancelled');
+  const unpaidClaims = preorderClaims.filter(c => !c.is_paid);
   const totalPaid = paidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
-  const totalClaims = preorderClaims.filter(c => c.status !== 'cancelled').length;
+  const totalClaims = preorderClaims.length;
 
   return (
     <div className="space-y-8">
@@ -256,8 +259,8 @@ const PreordersPage = () => {
               const setClaims = preorderClaims.filter(claim => 
                 set.items.some(item => item.id === claim.preorder_item_id)
               );
-              const setPaidClaims = setClaims.filter(c => c.is_paid && c.status !== 'cancelled');
-              const setUnpaidClaims = setClaims.filter(c => !c.is_paid && c.status !== 'cancelled');
+              const setPaidClaims = setClaims.filter(c => c.is_paid);
+              const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
               
               return (
                 <div
@@ -305,14 +308,15 @@ const PreordersPage = () => {
                   <div className="space-y-3">
                     {set.items.map((item) => {
                       const invItem = inventory.find(i => i.id === item.inventory_item_id);
-                      const itemClaims = preorderClaims.filter(c => c.preorder_item_id === item.id && c.status !== 'cancelled');
+                      const itemClaims = preorderClaims.filter(c => c.preorder_item_id === item.id);
                       const itemPaidClaims = itemClaims.filter(c => c.is_paid);
                       const availableQty = item.preorder_quantity - item.preorder_quantity_allocated;
                       
                       return (
                         <div
                           key={item.id}
-                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white"
+                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white cursor-pointer hover:bg-white/10 transition-colors"
+                          onClick={() => setViewingItemClaims(item)}
                         >
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
@@ -322,7 +326,10 @@ const PreordersPage = () => {
                               </div>
                             </div>
                             <button
-                              onClick={() => setEditingItem(item)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingItem(item);
+                              }}
                               className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
                             >
                               <Edit2 size={12} />
@@ -386,46 +393,121 @@ const PreordersPage = () => {
         )}
       </div>
 
-      {/* Claims List */}
+      {/* Claims List - Grouped by Customer/Order */}
       {preorderClaims.length > 0 && (
         <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
           <h2 className="mb-4 text-lg font-semibold text-white">Recent Customer Preorders</h2>
-          <div className="space-y-2">
-            {preorderClaims.slice(0, 10).map((claim) => (
-              <div
-                key={claim.id}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="font-medium">Preorder #{claim.id}</span>
-                  <span className="text-white/60">
-                    {customers.find(c => c.id === claim.customer_id)?.name || `Customer ${claim.customer_id}`}
-                  </span>
-                  <span className="text-white/60">Qty: {claim.quantity_requested}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setEditingClaim(claim)}
-                    className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
+          <div className="space-y-4">
+            {(() => {
+              // Group claims by preorder_order_id
+              const groupedOrders = preorderClaims.reduce((acc, claim) => {
+                if (!acc[claim.preorder_order_id]) {
+                  acc[claim.preorder_order_id] = [];
+                }
+                acc[claim.preorder_order_id].push(claim);
+                return acc;
+              }, {} as Record<number, PreorderClaim[]>);
+
+              // Convert to array and sort by earliest claim's created_at in each order
+              const sortedOrders = Object.entries(groupedOrders)
+                .map(([orderId, claims]) => ({
+                  orderId: parseInt(orderId),
+                  claims: claims.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+                  earliestDate: claims.reduce((earliest, claim) => {
+                    const claimDate = new Date(claim.created_at);
+                    return claimDate < earliest ? claimDate : earliest;
+                  }, new Date(claims[0].created_at))
+                }))
+                .sort((a, b) => b.earliestDate.getTime() - a.earliestDate.getTime())
+                .slice(0, 10);
+
+              return sortedOrders.map(({ orderId, claims }) => {
+                const customer = customers.find(c => c.id === claims[0].customer_id);
+                const activeClaims = claims;
+                const paidClaims = activeClaims.filter(c => c.is_paid);
+                const totalPaid = paidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
+
+                return (
+                  <div
+                    key={orderId}
+                    className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3"
                   >
-                    <Edit2 size={12} />
-                    Edit
-                  </button>
-                  {claim.is_paid ? (
-                    <div className="flex items-center gap-2 text-emerald-300">
-                      <DollarSign size={14} />
-                      <span className="font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
-                      <span className="text-xs text-white/40">{claim.payment_method}</span>
+                    {/* Order Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <span 
+                          className="text-base font-semibold cursor-pointer hover:text-accent transition-colors"
+                          onClick={() => setViewingOrderClaims(orderId)}
+                        >
+                          Preorder #{orderId}
+                        </span>
+                        <span className="text-sm text-white/60">
+                          {customer?.name || `Customer ${claims[0].customer_id}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-white/60">
+                          {activeClaims.length} {activeClaims.length === 1 ? 'item' : 'items'}
+                        </span>
+                        {paidClaims.length > 0 && (
+                          <div className="flex items-center gap-2 text-emerald-300">
+                            <DollarSign size={14} />
+                            <span className="font-semibold">{formatCurrency(totalPaid)}</span>
+                          </div>
+                        )}
+                        {paidClaims.length < activeClaims.length && (
+                          <span className="text-amber-300">
+                            {activeClaims.length - paidClaims.length} unpaid
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <span className="text-amber-300">Unpaid</span>
-                  )}
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-wider text-white/60">
-                    {claim.status}
-                  </span>
-                </div>
-              </div>
-            ))}
+
+                    {/* Order Items */}
+                    <div className="space-y-2 pl-4 border-l-2 border-white/10">
+                      {claims.map((claim) => {
+                        const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                        const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                        
+                        return (
+                          <div
+                            key={claim.id}
+                            className="flex items-center justify-between text-sm"
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              <span className="text-white/60">•</span>
+                              <span 
+                                className="text-white cursor-pointer hover:text-accent transition-colors"
+                                onClick={() => preorderItem && setViewingItemClaims(preorderItem)}
+                              >
+                                {invItem?.name || `Item #${claim.preorder_item_id}`}
+                              </span>
+                              <span className="text-white/40 text-xs">Qty: {claim.quantity_requested}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {claim.is_paid ? (
+                                <div className="flex items-center gap-2 text-emerald-300">
+                                  <DollarSign size={12} />
+                                  <span className="text-xs font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-amber-300 text-xs">Unpaid</span>
+                              )}
+                              <button
+                                onClick={() => setEditingClaim(claim)}
+                                className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
+                              >
+                                <Edit2 size={10} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       )}
@@ -596,9 +678,10 @@ const PreordersPage = () => {
                   )
                 ).then(() => {
                   setShowNewClaimModal(false);
+                  setSelectedCustomerForNewClaim(null);
                 }).catch(error => {
                   console.error('Error creating preorders:', error);
-                  alert('Some preorders failed to create. Check console for details.');
+                  alert('Some preorders failed to create. Please check which items were successfully added.');
                 });
               }}
               className="mt-4 space-y-4"
@@ -608,6 +691,8 @@ const PreordersPage = () => {
                 <select
                   name="customer_id"
                   required
+                  value={selectedCustomerForNewClaim || ''}
+                  onChange={(e) => setSelectedCustomerForNewClaim(e.target.value ? parseInt(e.target.value) : null)}
                   className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
                 >
                   <option value="">Select a customer...</option>
@@ -628,26 +713,45 @@ const PreordersPage = () => {
                     preorderItems.map(item => {
                       const invItem = inventory.find(i => i.id === item.inventory_item_id);
                       const available = item.preorder_quantity - item.preorder_quantity_allocated;
+                      
+                      // Check if this customer has already claimed this item
+                      const customerAlreadyClaimed = selectedCustomerForNewClaim 
+                        ? preorderClaims.some(claim => 
+                            claim.customer_id === selectedCustomerForNewClaim && 
+                            claim.preorder_item_id === item.id
+                          )
+                        : false;
+                      
+                      const isDisabled = available <= 0 || customerAlreadyClaimed;
+                      const disabledReason = customerAlreadyClaimed 
+                        ? 'Already pre-ordered' 
+                        : available <= 0 
+                        ? 'Out of stock' 
+                        : '';
+                      
                       return (
                         <label
                           key={item.id}
-                          className={`flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 cursor-pointer hover:bg-white/10 ${
-                            available <= 0 ? 'opacity-50 cursor-not-allowed' : ''
+                          className={`flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 ${
+                            isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-white/10'
                           }`}
                         >
                           <input
                             type="checkbox"
                             name={`product_${item.id}`}
-                            disabled={available <= 0}
+                            disabled={isDisabled}
                             className="h-4 w-4 rounded border-white/20 bg-white/10"
                           />
                           <div className="flex-1">
                             <p className="text-sm font-medium text-white">
                               {invItem?.name || `Item #${item.id}`}
+                              {customerAlreadyClaimed && (
+                                <span className="ml-2 text-xs text-amber-300">✓ Already pre-ordered</span>
+                              )}
                             </p>
                             <p className="text-xs text-white/60">
                               {invItem?.game_title && `${invItem.game_title} • `}
-                              Available: {available}
+                              {disabledReason || `Available: ${available}`}
                             </p>
                           </div>
                         </label>
@@ -655,13 +759,21 @@ const PreordersPage = () => {
                     })
                   )}
                 </div>
-                <p className="mt-2 text-xs text-white/40">Customer will get 1 unit of each selected product</p>
+                <p className="mt-2 text-xs text-white/40">
+                  {selectedCustomerForNewClaim 
+                    ? 'Customer will get 1 unit of each selected product' 
+                    : 'Select a customer to see available products'
+                  }
+                </p>
               </div>
 
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowNewClaimModal(false)}
+                  onClick={() => {
+                    setShowNewClaimModal(false);
+                    setSelectedCustomerForNewClaim(null);
+                  }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
                 >
                   Cancel
@@ -966,16 +1078,16 @@ const PreordersPage = () => {
             </form>
 
             {/* Cancel Preorder Section */}
-            {editingClaim.status !== 'cancelled' && editingClaim.status !== 'fulfilled' && (
+            {editingClaim.status !== 'fulfilled' && (
               <div className="mt-6 border-t border-white/10 pt-6">
                 <p className="text-sm font-medium text-rose-300">Danger Zone</p>
                 <p className="mt-1 text-xs text-white/60">
-                  Canceling this preorder will return {editingClaim.quantity_requested} unit(s) to available inventory.
+                  Deleting this preorder will return {editingClaim.quantity_requested} unit(s) to available inventory and permanently remove it from the system.
                 </p>
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm('Are you sure you want to cancel this preorder? This will return inventory to stock.')) {
+                    if (confirm('Are you sure you want to delete this preorder? This action cannot be undone.')) {
                       cancelClaimMutation.mutate(editingClaim.id, {
                         onSuccess: () => setEditingClaim(null)
                       });
@@ -985,7 +1097,7 @@ const PreordersPage = () => {
                   className="mt-3 flex items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
                 >
                   <Trash2 size={14} />
-                  {cancelClaimMutation.isPending ? 'Canceling...' : 'Cancel Preorder'}
+                  {cancelClaimMutation.isPending ? 'Deleting...' : 'Delete Preorder'}
                 </button>
               </div>
             )}
@@ -1094,6 +1206,288 @@ const PreordersPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      
+      {/* View Item Claims Modal - Shows who has pre-ordered a specific item */}
+      {viewingItemClaims && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Customer Preorders</h3>
+                <p className="mt-1 text-sm text-white/60">
+                  {inventory.find(i => i.id === viewingItemClaims.inventory_item_id)?.name || `Preorder Item #${viewingItemClaims.id}`}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingItemClaims(null)}
+                className="text-white/60 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Item Summary */}
+            <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-white/40">Allocated:</span>
+                  <span className="font-semibold text-white">{viewingItemClaims.preorder_quantity}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-white/40">Claimed:</span>
+                  <span className="font-semibold text-amber-300">{viewingItemClaims.preorder_quantity_allocated}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-white/40">Available:</span>
+                  <span className="font-semibold text-emerald-300">
+                    {viewingItemClaims.preorder_quantity - viewingItemClaims.preorder_quantity_allocated}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* List of customers who pre-ordered */}
+            <div className="space-y-2">
+              {(() => {
+                // Get all claims for this item
+                const itemClaims = preorderClaims
+                  .filter(claim => claim.preorder_item_id === viewingItemClaims.id)
+                  .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+                // Group by customer
+                const groupedByCustomer = itemClaims.reduce((acc, claim) => {
+                  if (!acc[claim.customer_id]) {
+                    acc[claim.customer_id] = [];
+                  }
+                  acc[claim.customer_id].push(claim);
+                  return acc;
+                }, {} as Record<number, PreorderClaim[]>);
+
+                // Convert to array for rendering
+                return Object.entries(groupedByCustomer).map(([customerId, claims]) => {
+                  const customer = customers.find(c => c.id === parseInt(customerId));
+                  const totalQty = claims.reduce((sum, c) => sum + c.quantity_requested, 0);
+                  const totalPaid = claims.filter(c => c.is_paid).reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
+                  const paidCount = claims.filter(c => c.is_paid).length;
+
+                  return (
+                    <div
+                      key={customerId}
+                      className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2"
+                    >
+                      {/* Customer Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-white">{customer?.name || `Customer ${customerId}`}</p>
+                          {customer?.email && (
+                            <p className="text-xs text-white/40">{customer.email}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-white/60">Total Qty: {totalQty}</span>
+                          {paidCount > 0 && (
+                            <div className="flex items-center gap-2 text-emerald-300">
+                              <DollarSign size={14} />
+                              <span className="text-sm font-semibold">{formatCurrency(totalPaid)}</span>
+                            </div>
+                          )}
+                          {paidCount < claims.length && (
+                            <span className="text-amber-300 text-sm">
+                              {claims.length - paidCount} unpaid
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Individual Claims (Orders) */}
+                      <div className="space-y-1 pl-4 border-l-2 border-white/10">
+                        {claims.map((claim) => (
+                          <div
+                            key={claim.id}
+                            className="flex items-center justify-between text-sm"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="text-white/60">•</span>
+                              <span 
+                                className="text-accent cursor-pointer hover:underline"
+                                onClick={() => {
+                                  setViewingItemClaims(null);
+                                  setViewingOrderClaims(claim.preorder_order_id);
+                                }}
+                              >
+                                Order #{claim.preorder_order_id}
+                              </span>
+                              <span className="text-white/60">Qty: {claim.quantity_requested}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {claim.is_paid ? (
+                                <div className="flex items-center gap-2 text-emerald-300">
+                                  <DollarSign size={12} />
+                                  <span className="text-xs font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-amber-300 text-xs">Unpaid</span>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setViewingItemClaims(null);
+                                  setEditingClaim(claim);
+                                }}
+                                className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
+                              >
+                                <Edit2 size={10} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+              {preorderClaims.filter(claim => claim.preorder_item_id === viewingItemClaims.id).length === 0 && (
+                <div className="text-center py-8 text-white/60">
+                  No customer preorders for this item yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setViewingItemClaims(null)}
+                className="rounded-lg border border-white/10 px-6 py-2 text-white/80 hover:bg-white/5"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Order Claims Modal - Shows all items in a preorder order */}
+      {viewingOrderClaims && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Preorder #{viewingOrderClaims}</h3>
+                {(() => {
+                  const orderClaims = preorderClaims.filter(c => c.preorder_order_id === viewingOrderClaims);
+                  const customer = orderClaims[0] ? customers.find(c => c.id === orderClaims[0].customer_id) : null;
+                  return customer && (
+                    <div className="mt-1 text-sm text-white/60">
+                      <p>{customer.name}</p>
+                      {customer.email && <p className="text-xs text-white/40">{customer.email}</p>}
+                    </div>
+                  );
+                })()}
+              </div>
+              <button
+                onClick={() => setViewingOrderClaims(null)}
+                className="text-white/60 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Order Summary */}
+            {(() => {
+              const orderClaims = preorderClaims.filter(c => c.preorder_order_id === viewingOrderClaims);
+              const paidCount = orderClaims.filter(c => c.is_paid).length;
+              const totalPaid = orderClaims.filter(c => c.is_paid).reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
+              
+              return (
+                <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-6 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/40">Total Items:</span>
+                      <span className="font-semibold text-white">{orderClaims.length}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/40">Paid Items:</span>
+                      <span className="font-semibold text-emerald-300">{paidCount}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/40">Total Deposits:</span>
+                      <span className="font-semibold text-emerald-300">{formatCurrency(totalPaid)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* List of items in the order */}
+            <div className="space-y-2">
+              {preorderClaims
+                .filter(claim => claim.preorder_order_id === viewingOrderClaims)
+                .map((claim) => {
+                  const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                  const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                  
+                  return (
+                    <div
+                      key={claim.id}
+                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white"
+                    >
+                      <div 
+                        className="flex items-center gap-4 flex-1 cursor-pointer hover:bg-white/5 -mx-4 -my-3 px-4 py-3 rounded-xl transition-colors"
+                        onClick={() => {
+                          setViewingOrderClaims(null);
+                          if (preorderItem) {
+                            setViewingItemClaims(preorderItem);
+                          }
+                        }}
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium">{invItem?.name || `Preorder Item #${claim.preorder_item_id}`}</p>
+                          {invItem?.game_title && (
+                            <p className="text-xs text-white/40">{invItem.game_title}</p>
+                          )}
+                        </div>
+                        <span className="text-white/60">Qty: {claim.quantity_requested}</span>
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        {claim.is_paid ? (
+                          <div className="flex items-center gap-2 text-emerald-300">
+                            <DollarSign size={14} />
+                            <span className="font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
+                          </div>
+                        ) : (
+                          <span className="text-amber-300">Unpaid</span>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setViewingOrderClaims(null);
+                            setEditingClaim(claim);
+                          }}
+                          className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
+                        >
+                          <Edit2 size={12} />
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              {preorderClaims.filter(claim => claim.preorder_order_id === viewingOrderClaims).length === 0 && (
+                <div className="text-center py-8 text-white/60">
+                  No items found in this preorder.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setViewingOrderClaims(null)}
+                className="rounded-lg border border-white/10 px-6 py-2 text-white/80 hover:bg-white/5"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

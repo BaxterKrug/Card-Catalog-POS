@@ -32,19 +32,6 @@ const AvatarMenu = () => {
       <DropdownMenu.Content className="min-w-[220px] rounded-2xl border border-white/10 bg-[#161927] p-2 text-sm text-white shadow-xl" sideOffset={10} align="end">
         <DropdownMenu.Label className="px-3 py-1 text-xs uppercase tracking-widest text-white/40">Session</DropdownMenu.Label>
         
-        {/* Show additional options only for managers and owners */}
-        {(user.role === "owner" || user.role === "manager") && (
-          <>
-            <DropdownMenu.Item className="cursor-pointer rounded-xl px-3 py-2 hover:bg-white/5">
-              Switch register
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className="cursor-pointer rounded-xl px-3 py-2 hover:bg-white/5">
-              Team settings
-            </DropdownMenu.Item>
-            <DropdownMenu.Separator className="my-2 border-t border-white/10" />
-          </>
-        )}
-        
         <DropdownMenu.Item 
           className="cursor-pointer rounded-xl px-3 py-2 text-red-300 hover:bg-red-500/10"
           onClick={logout}

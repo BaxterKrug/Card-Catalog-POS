@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from ..auth import hash_password, verify_password
 from ..exceptions import ValidationError
 from ..models import User, UserRole
-from ..schemas import UserCreate
+from ..schemas import UserCreate, UserUpdate
 
 DEFAULT_USER_NAME = "Baxter Krug"
 DEFAULT_USER_TITLE = "Developer"
@@ -50,6 +50,25 @@ def authenticate_user(session: Session, username: str, password: str) -> User | 
         return None
     if not verify_password(password, user.password_hash):
         return None
+    return user
+
+
+def get_user_by_id(session: Session, user_id: int) -> User | None:
+    return session.get(User, user_id)
+
+
+def update_user(session: Session, user_id: int, payload: UserUpdate) -> User:
+    user = get_user_by_id(session, user_id)
+    if not user:
+        raise ValidationError(f"User with ID {user_id} not found")
+    
+    # Update fields if provided
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(user, field, value)
+    
+    session.add(user)
+    session.flush()
     return user
 
 

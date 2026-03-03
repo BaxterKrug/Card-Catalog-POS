@@ -103,7 +103,9 @@ const InventoryPage = () => {
                 <th className="py-3 pr-3 font-normal">Source</th>
                 <th className="py-3 pr-3 font-normal">Game / Set</th>
                 <th className="py-3 pr-3 font-normal">Available</th>
-                <th className="py-3 pr-3 font-normal">Unit Price</th>
+                <th className="py-3 pr-3 font-normal">Cost</th>
+                <th className="py-3 pr-3 font-normal">Price</th>
+                <th className="py-3 pr-3 font-normal">Margin</th>
                 <th className="py-3 font-normal">Actions</th>
               </tr>
             </thead>
@@ -111,21 +113,21 @@ const InventoryPage = () => {
               {isLoading && <InventoryLoadingRows />}
               {isError && !isLoading && (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-sm text-rose-200">
+                  <td colSpan={9} className="py-6 text-center text-sm text-rose-200">
                     Could not load inventory. Please try again.
                   </td>
                 </tr>
               )}
               {!isLoading && !isError && items.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-sm text-white/60">
+                  <td colSpan={9} className="py-6 text-center text-sm text-white/60">
                     No inventory items yet. Use the receive or CSV import actions to get started.
                   </td>
                 </tr>
               )}
               {!isLoading && !isError && items.length > 0 && filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-sm text-white/60">
+                  <td colSpan={9} className="py-6 text-center text-sm text-white/60">
                     All items are out of stock. Click "Show Out of Stock" to view them.
                   </td>
                 </tr>
@@ -173,6 +175,10 @@ const InventorySummaryCard = ({
 };
 
 const InventoryRow = ({ item, onEdit }: { item: InventoryItem; onEdit: () => void }) => {
+  const cost = item.acquisition_cost_cents ? item.acquisition_cost_cents / 100 : null;
+  const price = item.unit_price_cents / 100;
+  const margin = cost !== null && price > 0 ? ((price - cost) / price * 100) : null;
+  
   return (
     <tr className="border-t border-white/5 text-white hover:bg-white/5">
       <td className="py-4 pr-3 text-xs text-white/40">{item.sku}</td>
@@ -188,7 +194,19 @@ const InventoryRow = ({ item, onEdit }: { item: InventoryItem; onEdit: () => voi
         {item.set_code && item.game_title && <p className="text-xs text-white/40">Set: {item.set_code}</p>}
       </td>
       <td className="py-4 pr-3 font-bold text-emerald-300 text-lg">{item.available_quantity}</td>
-      <td className="py-4 pr-3 text-white/80">{currency.format(item.unit_price_cents / 100)}</td>
+      <td className="py-4 pr-3 text-white/60">
+        {cost !== null ? currency.format(cost) : <span className="text-white/30">—</span>}
+      </td>
+      <td className="py-4 pr-3 text-white/80">{currency.format(price)}</td>
+      <td className="py-4 pr-3">
+        {margin !== null ? (
+          <span className={`font-semibold ${margin >= 30 ? 'text-emerald-400' : margin >= 15 ? 'text-yellow-400' : 'text-rose-400'}`}>
+            {margin.toFixed(1)}%
+          </span>
+        ) : (
+          <span className="text-white/30">—</span>
+        )}
+      </td>
       <td className="py-4">
         <button
           onClick={onEdit}
@@ -241,6 +259,7 @@ const EditInventoryModal = ({ item, onClose }: { item: InventoryItem; onClose: (
     printing: item.printing || "",
     condition: item.condition || "",
     acquisitionReference: item.acquisition_reference || "",
+    acquisitionCost: item.acquisition_cost_cents ? (item.acquisition_cost_cents / 100).toString() : "",
     unitPrice: (item.unit_price_cents / 100).toString(),
     physicalQuantity: item.physical_quantity.toString(),
   });
@@ -442,6 +461,19 @@ const EditInventoryModal = ({ item, onClose }: { item: InventoryItem; onClose: (
                 onChange={handleChange("acquisitionReference")}
                 placeholder="Distributor PO-9001"
               />
+            </div>
+            <div className="flex flex-col gap-1 text-sm text-white/70">
+              <span className="text-xs uppercase tracking-[0.3em] text-white/40">Acquisition cost (USD)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-2 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
+                value={form.acquisitionCost}
+                onChange={handleChange("acquisitionCost")}
+                placeholder="24.50"
+              />
+              <p className="text-xs text-white/40 mt-1">Your cost to purchase this item (for profit tracking)</p>
             </div>
             <div className="flex flex-col gap-1 text-sm text-white/70">
               <span className="text-xs uppercase tracking-[0.3em] text-white/40">Unit price (USD)</span>

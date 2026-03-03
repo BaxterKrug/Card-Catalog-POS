@@ -67,6 +67,15 @@ def delete_item(session: Session, item_id: int) -> None:
     if preorder_items:
         raise ValidationError(f"Cannot delete item '{item.name}' - it has associated preorders")
     
+    # Delete associated inventory adjustments first
+    adjustments_statement = select(InventoryAdjustment).where(InventoryAdjustment.inventory_item_id == item_id)
+    adjustments = session.exec(adjustments_statement).all()
+    for adjustment in adjustments:
+        session.delete(adjustment)
+    
+    # Flush to ensure adjustments are deleted before the item
+    session.flush()
+    
     session.delete(item)
     session.commit()
 

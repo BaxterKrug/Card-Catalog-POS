@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import func
+from sqlalchemy import func, desc
 from sqlmodel import Session, select
 
 from ..exceptions import NotFoundError, ValidationError
@@ -175,12 +175,11 @@ def _claimed_quantity(session: Session, preorder_item_id: int) -> int:
 
 
 def _customer_claimed_quantity(session: Session, preorder_item_id: int, customer_id: int) -> int:
-    """Get total quantity claimed by a specific customer for a preorder item."""
+    """Get total quantity claimed by a specific customer for a preorder item (across all orders)."""
     stmt = (
         select(func.coalesce(func.sum(PreorderClaim.quantity_requested), 0))
         .where(PreorderClaim.preorder_item_id == preorder_item_id)
         .where(PreorderClaim.customer_id == customer_id)
-        .where(PreorderClaim.status != PreorderClaimStatus.CANCELLED)
     )
     result = session.exec(stmt).one()
     total = result[0] if isinstance(result, tuple) else result
@@ -196,8 +195,11 @@ def create_preorder_claim(session: Session, payload: PreorderClaimCreate) -> Pre
     get_customer_or_raise(session, payload.customer_id)
 
     # Find or create PreorderOrder for this customer
+    # Always reuse the customer's first order to keep all their preorders together
     preorder_order = session.exec(
-        select(PreorderOrder).where(PreorderOrder.customer_id == payload.customer_id)
+        select(PreorderOrder)
+        .where(PreorderOrder.customer_id == payload.customer_id)
+        .limit(1)
     ).first()
     if not preorder_order:
         preorder_order = PreorderOrder(
@@ -274,10 +276,11 @@ def cancel_preorder_claim(session: Session, claim_id: int) -> PreorderClaim:
     preorder_item.updated_at = utcnow()
     session.add(preorder_item)
     
-    claim.status = PreorderClaimStatus.CANCELLED
-    claim.updated_at = utcnow()
-    session.add(claim)
+    # Delete the claim instead of marking it as cancelled
+    session.delete(claim)
     session.flush()
+    
+    # Return the claim data before deletion (for the response)
     return claim
 
 

@@ -15,6 +15,7 @@ export interface InventoryItem {
   game_title?: string | null;
   acquisition_reference?: string | null;
   msrp_cents?: number | null;
+  acquisition_cost_cents?: number | null;
   unit_price_cents: number;
   physical_quantity: number;
   allocated_quantity: number;
@@ -31,6 +32,7 @@ export interface InventoryCreateInput {
   condition?: string | null;
   game_title?: string | null;
   acquisition_reference?: string | null;
+  acquisition_cost_cents?: number | null;
   unit_price_cents: number;
   physical_quantity: number;
 }

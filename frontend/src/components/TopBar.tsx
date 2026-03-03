@@ -1,4 +1,4 @@
-import { Bell, Plus, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import AvatarMenu from "./AvatarMenu";
 
 interface TopBarProps {
@@ -28,10 +28,6 @@ const TopBar = ({ onNewOrder, onReceiveStock }: TopBarProps) => {
           className="flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-[#061012] shadow-glow hover:bg-accent/90"
         >
           <Plus size={16} /> Receive Stock
-        </button>
-        <button className="relative rounded-full border border-white/10 p-2 text-white/70 hover:text-accent">
-          <Bell size={18} />
-          <span className="absolute right-1 top-1 inline-flex h-2.5 w-2.5 rounded-full bg-pink-500" />
         </button>
         <AvatarMenu />
       </div>

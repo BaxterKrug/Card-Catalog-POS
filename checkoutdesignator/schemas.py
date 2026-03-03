@@ -46,6 +46,14 @@ class UserCreate(BaseModel):
     is_active: bool = True
 
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[UserRole] = None
+    title: Optional[str] = None
+    email: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

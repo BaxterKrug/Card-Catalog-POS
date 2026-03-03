@@ -81,6 +81,8 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=utcnow, nullable=False)
 
+    checklist_completions: List["ChecklistCompletion"] = Relationship(back_populates="user")
+
 
 class Customer(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -260,3 +262,35 @@ class BuylistTransaction(SQLModel, table=True):
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=utcnow, nullable=False)
+
+
+class ChecklistCategory(str, Enum):
+    OPENING = "opening"
+    CLOSING = "closing"
+    MAINTENANCE = "maintenance"
+
+
+class ChecklistTemplate(SQLModel, table=True):
+    """Template for checklist items that reset daily"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    category: ChecklistCategory = Field(index=True)
+    task_name: str
+    display_order: int = Field(default=0)
+    is_active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=utcnow, nullable=False)
+
+    completions: List["ChecklistCompletion"] = Relationship(back_populates="template")
+
+
+class ChecklistCompletion(SQLModel, table=True):
+    """Track who completed which checklist items and when"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    template_id: int = Field(foreign_key="checklisttemplate.id", index=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    completion_date: date = Field(index=True)  # Date the task was for (not when completed)
+    completed_at: datetime = Field(default_factory=utcnow, nullable=False)
+    notes: Optional[str] = None
+
+    template: Optional[ChecklistTemplate] = Relationship(back_populates="completions")
+    user: Optional["User"] = Relationship(back_populates="checklist_completions")

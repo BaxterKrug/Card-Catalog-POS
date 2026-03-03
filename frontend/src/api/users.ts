@@ -22,6 +22,14 @@ export interface UserCreateInput {
   is_active?: boolean;
 }
 
+export interface UserUpdateInput {
+  name?: string;
+  role?: "owner" | "manager" | "employee";
+  title?: string;
+  email?: string;
+  is_active?: boolean;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;
@@ -44,5 +52,10 @@ export async function fetchUsers(): Promise<User[]> {
 
 export async function createUser(payload: UserCreateInput): Promise<User> {
   const { data } = await apiClient.post<User>("/users", payload);
+  return data;
+}
+
+export async function updateUser(userId: number, payload: UserUpdateInput): Promise<User> {
+  const { data } = await apiClient.patch<User>(`/users/${userId}`, payload);
   return data;
 }

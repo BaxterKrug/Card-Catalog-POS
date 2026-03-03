@@ -14,6 +14,34 @@ const BarcodeScanner = ({ onScan, onClose }: BarcodeScannerProps) => {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const lastScanTimeRef = useRef<number>(0);
+  const isProcessingRef = useRef<boolean>(false);
+
+  // Function to play a beep sound
+  const playBeep = () => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Set beep properties
+      oscillator.frequency.value = 800; // Hz - nice scanning beep tone
+      oscillator.type = "sine";
+      
+      // Volume control
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+      
+      // Play for 100ms
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (err) {
+      console.warn("Failed to play beep sound:", err);
+    }
+  };
 
   // Cleanup function to stop camera
   const stopCamera = () => {
@@ -42,8 +70,18 @@ const BarcodeScanner = ({ onScan, onClose }: BarcodeScannerProps) => {
 
   useEffect(() => {
     console.log("BarcodeScanner mounted");
-    // Initialize the barcode reader
+    // Initialize the barcode reader with hints to reduce CPU usage
     const reader = new BrowserMultiFormatReader();
+    
+    // Configure reader for better performance
+    const hints = new Map();
+    hints.set(2, true); // ASSUME_GS1 - helps with retail barcodes
+    hints.set(3, true); // TRY_HARDER - more thorough but controlled
+    reader.hints = hints;
+    
+    // Set a reasonable time between decode attempts (reduce from default)
+    reader.timeBetweenDecodingAttempts = 300; // milliseconds
+    
     readerRef.current = reader;
 
     // Handle ESC key to close scanner
@@ -118,11 +156,35 @@ const BarcodeScanner = ({ onScan, onClose }: BarcodeScannerProps) => {
         videoRef.current,
         (result, error) => {
           if (result) {
+            // Prevent duplicate scans within 1 second
+            const now = Date.now();
+            if (now - lastScanTimeRef.current < 1000) {
+              return;
+            }
+            
+            // Prevent concurrent processing
+            if (isProcessingRef.current) {
+              return;
+            }
+            
+            isProcessingRef.current = true;
+            lastScanTimeRef.current = now;
+            
             // Successfully scanned a barcode
             const barcode = result.getText();
             console.log("Barcode scanned:", barcode);
+            
+            // Play beep sound
+            playBeep();
+            
             // Call the onScan callback
             onScan(barcode);
+            
+            // Reset processing flag after a short delay
+            setTimeout(() => {
+              isProcessingRef.current = false;
+            }, 500);
+            
             // Note: The parent component (NewOrderModal/InventoryPage) should close the scanner
           }
           // Log other errors for debugging (but ignore NotFoundException which is normal)
