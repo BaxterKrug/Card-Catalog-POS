@@ -23,7 +23,8 @@ dependencies = [
   "pydantic-settings>=2.3",
   "httpx>=0.26",
   "passlib[bcrypt]>=1.7.4",
-  "pyjwt>=2.9.0"
+  "pyjwt>=2.9.0",
+  "tzdata>=2024.0"
 ]
 
 [project.optional-dependencies]
