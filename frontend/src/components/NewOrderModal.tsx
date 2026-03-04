@@ -12,6 +12,7 @@ interface NewOrderModalProps {
 }
 
 interface CartItem {
+  id: string; // Unique ID for this cart item instance
   inventory_item_id: number | null; // null for custom singles
   sku: string;
   name: string;
@@ -29,11 +30,12 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [nextCartItemId, setNextCartItemId] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [showProductList, setShowProductList] = useState(false);
-  const [editingPrice, setEditingPrice] = useState<number | null>(null);
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [tempPrice, setTempPrice] = useState("");
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [orderDiscountType, setOrderDiscountType] = useState<DiscountType | "">("");
@@ -118,25 +120,25 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
       if (existingItem.quantity < inventoryItem.available_quantity) {
         setCart(
           cart.map((item) =>
-            item.inventory_item_id === itemId
+            item.id === existingItem.id
               ? { ...item, quantity: item.quantity + 1 }
               : item
           )
         );
       }
     } else {
-      setCart([
-        ...cart,
-        {
-          inventory_item_id: itemId,
-          sku: inventoryItem.sku,
-          name: inventoryItem.name,
-          category: inventoryItem.category,
-          quantity: 1,
-          unit_price_cents: inventoryItem.unit_price_cents,
-          original_price_cents: inventoryItem.unit_price_cents,
-        },
-      ]);
+      const newCartItem: CartItem = {
+        id: `cart-${nextCartItemId}`,
+        inventory_item_id: itemId,
+        sku: inventoryItem.sku,
+        name: inventoryItem.name,
+        category: inventoryItem.category,
+        quantity: 1,
+        unit_price_cents: inventoryItem.unit_price_cents,
+        original_price_cents: inventoryItem.unit_price_cents,
+      };
+      setCart([...cart, newCartItem]);
+      setNextCartItemId(nextCartItemId + 1);
     }
     setSearchTerm(""); // Clear search after adding
     setShowProductList(false); // Close product list after adding
@@ -151,67 +153,59 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
       return;
     }
 
-    // Add a Singles line item
-    setCart([
-      ...cart,
-      {
-        inventory_item_id: singlesInventory.id,
-        sku: singlesInventory.sku,
-        name: "Singles",
-        category: "single",
-        quantity: 1,
-        unit_price_cents: 0, // Will be set by user
-        original_price_cents: 0,
-      },
-    ]);
+    // Add a Singles line item with unique ID (allows multiple instances)
+    const newSinglesItem: CartItem = {
+      id: `cart-${nextCartItemId}`,
+      inventory_item_id: singlesInventory.id,
+      sku: singlesInventory.sku,
+      name: "Singles",
+      category: "single",
+      quantity: 1,
+      unit_price_cents: 0, // Will be set by user
+      original_price_cents: 0,
+    };
+    setCart([...cart, newSinglesItem]);
+    setNextCartItemId(nextCartItemId + 1);
     
     // Automatically open price editor and set temp price to empty
-    setEditingPrice(singlesInventory.id);
+    setEditingPrice(newSinglesItem.id);
     setTempPrice("");
   };
 
-  const updateQuantity = (itemId: number | null, newQuantity: number) => {
-    // Singles items (null ID) don't have inventory limits
-    if (itemId === null) {
-      if (newQuantity <= 0) {
-        removeFromCart(itemId);
-        return;
-      }
-      setCart(
-        cart.map((item) =>
-          item.inventory_item_id === itemId ? { ...item, quantity: newQuantity } : item
-        )
-      );
-      return;
-    }
-
-    const inventoryItem = inventory.find((item) => item.id === itemId);
-    if (!inventoryItem) return;
+  const updateQuantity = (cartItemId: string, newQuantity: number) => {
+    const cartItem = cart.find((item) => item.id === cartItemId);
+    if (!cartItem) return;
 
     if (newQuantity <= 0) {
-      removeFromCart(itemId);
+      removeFromCart(cartItemId);
       return;
     }
 
-    if (newQuantity > inventoryItem.available_quantity) {
-      return;
+    // Singles items don't have inventory limits
+    if (cartItem.inventory_item_id !== null) {
+      const inventoryItem = inventory.find((item) => item.id === cartItem.inventory_item_id);
+      if (!inventoryItem) return;
+
+      if (newQuantity > inventoryItem.available_quantity) {
+        return;
+      }
     }
 
     setCart(
       cart.map((item) =>
-        item.inventory_item_id === itemId ? { ...item, quantity: newQuantity } : item
+        item.id === cartItemId ? { ...item, quantity: newQuantity } : item
       )
     );
   };
 
-  const removeFromCart = (itemId: number | null) => {
-    setCart(cart.filter((item) => item.inventory_item_id !== itemId));
+  const removeFromCart = (cartItemId: string) => {
+    setCart(cart.filter((item) => item.id !== cartItemId));
   };
 
-  const updatePrice = (itemId: number | null, newPriceCents: number) => {
+  const updatePrice = (cartItemId: string, newPriceCents: number) => {
     setCart(
       cart.map((item) =>
-        item.inventory_item_id === itemId
+        item.id === cartItemId
           ? {
               ...item,
               unit_price_cents: newPriceCents,
@@ -222,18 +216,18 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     );
   };
 
-  const handlePriceEdit = (itemId: number | null) => {
-    const item = cart.find((i) => i.inventory_item_id === itemId);
+  const handlePriceEdit = (cartItemId: string) => {
+    const item = cart.find((i) => i.id === cartItemId);
     if (item) {
-      setEditingPrice(itemId);
+      setEditingPrice(cartItemId);
       setTempPrice((item.unit_price_cents / 100).toFixed(2));
     }
   };
 
-  const handlePriceSave = (itemId: number | null) => {
+  const handlePriceSave = (cartItemId: string) => {
     const priceDollars = parseFloat(tempPrice);
     if (!isNaN(priceDollars) && priceDollars >= 0) {
-      updatePrice(itemId, Math.round(priceDollars * 100));
+      updatePrice(cartItemId, Math.round(priceDollars * 100));
     }
     setEditingPrice(null);
     setTempPrice("");
@@ -519,7 +513,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                       
                       return (
                       <div
-                        key={item.inventory_item_id}
+                        key={item.id}
                         className={`rounded-2xl border px-4 py-3 ${
                           needsPrice 
                             ? 'border-accent bg-accent/5 ring-2 ring-accent/30' 
@@ -547,7 +541,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                             )}
                           </div>
                           <button
-                            onClick={() => removeFromCart(item.inventory_item_id)}
+                            onClick={() => removeFromCart(item.id)}
                             className="text-white/60 hover:text-rose-300"
                           >
                             <Trash2 size={18} />
@@ -560,7 +554,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() =>
-                                updateQuantity(item.inventory_item_id, item.quantity - 1)
+                                updateQuantity(item.id, item.quantity - 1)
                               }
                               className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white/60 hover:border-accent hover:text-accent"
                             >
@@ -569,7 +563,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                             <span className="w-12 text-center text-white">{item.quantity}</span>
                             <button
                               onClick={() =>
-                                updateQuantity(item.inventory_item_id, item.quantity + 1)
+                                updateQuantity(item.id, item.quantity + 1)
                               }
                               className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-white/60 hover:border-accent hover:text-accent"
                             >
@@ -580,16 +574,16 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                           {/* Price */}
                           <div className="flex items-center gap-2">
                             {!isSingles && <span className="text-xs text-white/40">@</span>}
-                            {editingPrice === item.inventory_item_id || (isSingles && item.unit_price_cents === 0) ? (
+                            {editingPrice === item.id || (isSingles && item.unit_price_cents === 0) ? (
                               <div className={`flex items-center gap-1 ${isSingles ? 'rounded-lg bg-accent/10 px-3 py-2 ring-2 ring-accent' : ''}`}>
                                 <span className={`${isSingles ? 'text-accent font-bold text-lg' : 'text-white'}`}>$</span>
                                 <input
                                   type="number"
                                   value={tempPrice}
                                   onChange={(e) => setTempPrice(e.target.value)}
-                                  onBlur={() => handlePriceSave(item.inventory_item_id)}
+                                  onBlur={() => handlePriceSave(item.id)}
                                   onKeyDown={(e) => {
-                                    if (e.key === "Enter") handlePriceSave(item.inventory_item_id);
+                                    if (e.key === "Enter") handlePriceSave(item.id);
                                     if (e.key === "Escape") {
                                       setEditingPrice(null);
                                       setTempPrice("");
@@ -613,7 +607,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                               </div>
                             ) : (
                               <button
-                                onClick={() => handlePriceEdit(item.inventory_item_id)}
+                                onClick={() => handlePriceEdit(item.id)}
                                 className="text-sm text-white hover:text-accent"
                                 title={item.category === "single" ? "Click to edit price" : "Edit price"}
                               >
