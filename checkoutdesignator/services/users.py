@@ -72,6 +72,20 @@ def update_user(session: Session, user_id: int, payload: UserUpdate) -> User:
     return user
 
 
+def change_user_password(session: Session, user_id: int, new_password: str) -> User:
+    user = get_user_by_id(session, user_id)
+    if not user:
+        raise ValidationError(f"User with ID {user_id} not found")
+    
+    if not new_password or len(new_password) < 4:
+        raise ValidationError("Password must be at least 4 characters")
+    
+    user.password_hash = hash_password(new_password)
+    session.add(user)
+    session.flush()
+    return user
+
+
 def ensure_default_user(session: Session) -> User:
     statement = select(User).where(User.username == DEFAULT_USER_NAME.lower().replace(" ", "."))
     existing = session.exec(statement).one_or_none()

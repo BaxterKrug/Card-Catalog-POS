@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, Percent, UserPlus, CreditCard, DollarSign, Sparkles } from "lucide-react";
+import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, UserPlus, CreditCard, DollarSign, Sparkles } from "lucide-react";
 import { createOrder, addOrderItem, submitOrder, addOrderPayment, type OrderItemCreateInput, type DiscountType, type PaymentMethod } from "../api/orders";
 import { useCustomers } from "../hooks/useCustomers";
 import { useInventory } from "../hooks/useInventory";
@@ -19,7 +19,6 @@ interface CartItem {
   quantity: number;
   unit_price_cents: number;
   original_price_cents: number;
-  discount_percent: number;
 }
 
 const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
@@ -36,8 +35,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const [showProductList, setShowProductList] = useState(false);
   const [editingPrice, setEditingPrice] = useState<number | null>(null);
   const [tempPrice, setTempPrice] = useState("");
-  const [editingDiscount, setEditingDiscount] = useState<number | null>(null);
-  const [tempDiscount, setTempDiscount] = useState("");
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [orderDiscountType, setOrderDiscountType] = useState<DiscountType | "">("");
   const [orderDiscountPercent, setOrderDiscountPercent] = useState<number>(0);
@@ -138,7 +135,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
           quantity: 1,
           unit_price_cents: inventoryItem.unit_price_cents,
           original_price_cents: inventoryItem.unit_price_cents,
-          discount_percent: 0,
         },
       ]);
     }
@@ -166,7 +162,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
         quantity: 1,
         unit_price_cents: 0, // Will be set by user
         original_price_cents: 0,
-        discount_percent: 0,
       },
     ]);
     
@@ -221,23 +216,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
               ...item,
               unit_price_cents: newPriceCents,
               original_price_cents: item.original_price_cents,
-              discount_percent: 0, // Reset discount when custom price is set
-            }
-          : item
-      )
-    );
-  };
-
-  const updateDiscount = (itemId: number | null, discountPercent: number) => {
-    setCart(
-      cart.map((item) =>
-        item.inventory_item_id === itemId
-          ? {
-              ...item,
-              discount_percent: Math.max(0, Math.min(100, discountPercent)),
-              unit_price_cents: Math.round(
-                item.original_price_cents * (1 - Math.max(0, Math.min(100, discountPercent)) / 100)
-              ),
             }
           : item
       )
@@ -259,23 +237,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     }
     setEditingPrice(null);
     setTempPrice("");
-  };
-
-  const handleDiscountEdit = (itemId: number | null) => {
-    const item = cart.find((i) => i.inventory_item_id === itemId);
-    if (item) {
-      setEditingDiscount(itemId);
-      setTempDiscount(item.discount_percent.toString());
-    }
-  };
-
-  const handleDiscountSave = (itemId: number | null) => {
-    const discount = parseFloat(tempDiscount);
-    if (!isNaN(discount)) {
-      updateDiscount(itemId, discount);
-    }
-    setEditingDiscount(null);
-    setTempDiscount("");
   };
 
   const subtotalCents = cart.reduce(
@@ -412,9 +373,9 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-        <div className="relative w-full max-w-4xl overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
+        <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+          <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-indigo-500">
                 <ShoppingCart size={20} className="text-white" />
@@ -433,7 +394,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
           </div>
 
           {/* Content */}
-          <div className="max-h-[70vh] overflow-y-auto p-6">
+          <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <div className="space-y-6">
               {/* Customer Selection */}
               <div>
@@ -661,49 +622,8 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                             )}
                           </div>
 
-                          {/* Discount */}
-                          <div className="flex items-center gap-2">
-                            <Percent size={14} className="text-white/40" />
-                            {editingDiscount === item.inventory_item_id ? (
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="number"
-                                  value={tempDiscount}
-                                  onChange={(e) => setTempDiscount(e.target.value)}
-                                  onBlur={() => handleDiscountSave(item.inventory_item_id)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") handleDiscountSave(item.inventory_item_id);
-                                    if (e.key === "Escape") {
-                                      setEditingDiscount(null);
-                                      setTempDiscount("");
-                                    }
-                                  }}
-                                  autoFocus
-                                  step="1"
-                                  min="0"
-                                  max="100"
-                                  className="w-16 rounded-lg border border-accent bg-[#080b12] px-2 py-1 text-sm text-white focus:outline-none"
-                                />
-                                <span className="text-xs text-white/60">%</span>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => handleDiscountEdit(item.inventory_item_id)}
-                                className={`text-sm ${item.discount_percent > 0 ? "text-emerald-300" : "text-white/60"} hover:text-accent`}
-                                title="Click to add discount"
-                              >
-                                {item.discount_percent > 0 ? `-${item.discount_percent}%` : "0%"}
-                              </button>
-                            )}
-                          </div>
-
                           {/* Line Total */}
                           <div className="ml-auto text-right">
-                            {item.discount_percent > 0 && (
-                              <p className="text-xs text-white/40 line-through">
-                                ${((item.quantity * item.original_price_cents) / 100).toFixed(2)}
-                              </p>
-                            )}
                             <p className="font-semibold text-white">
                               ${((item.quantity * item.unit_price_cents) / 100).toFixed(2)}
                             </p>
@@ -788,7 +708,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
           </div>
 
           {/* Footer */}
-          <div className="border-t border-white/10 px-6 py-4">
+          <div className="flex-shrink-0 border-t border-white/10 px-6 py-4">
             {!showCheckout ? (
               // Order Creation View
               <>

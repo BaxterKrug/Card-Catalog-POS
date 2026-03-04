@@ -59,3 +59,8 @@ export async function updateUser(userId: number, payload: UserUpdateInput): Prom
   const { data } = await apiClient.patch<User>(`/users/${userId}`, payload);
   return data;
 }
+
+export async function changeUserPassword(userId: number, newPassword: string): Promise<User> {
+  const { data } = await apiClient.patch<User>(`/users/${userId}/password`, { new_password: newPassword });
+  return data;
+}

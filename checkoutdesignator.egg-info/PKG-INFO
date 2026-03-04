@@ -22,97 +22,389 @@ Requires-Dist: pytest>=8.2; extra == "dev"
 Requires-Dist: anyio>=4.2; extra == "dev"
 Requires-Dist: pytest-cov>=4.1; extra == "dev"
 
-# CheckoutDesignator
+# Card Catalog POS
 
-Point-of-sale and preorder workflow for **SK Games**, crafted by **SK R&D**.
+> **Modern Point-of-Sale and Inventory Management System**  
+> Built by SK R&D for SK Games
 
-## Highlights
-- Three-layer inventory (physical, allocated, available) with hard validation to stop oversells.
-- Singles vs supplier stock metadata (player trade-ins vs purchase orders) with optional game + acquisition reference.
-- First-class preorder pipeline with FIFO allocation as stock arrives.
-- Every sale/preorder tied to a customer record with pickup tracking.
-- REST API (FastAPI) plus Typer-powered CLI for register/back-office flows.
-- SQLite + SQLModel data layer with audit-ready adjustment log.
+A complete retail management solution for card game stores featuring real-time inventory tracking, pre-order management, customer accounts, and multi-register support.
 
-## Project Structure
-```
-checkoutdesignator/
-  app/main.py          # FastAPI application entrypoint
-  cli.py               # Typer CLI (`checkout-designator`)
-  config.py            # Env-driven settings
-  database.py          # Engine/session helpers
-  models.py            # SQLModel tables & enums
-  routers/             # API routers (customers, inventory, orders, preorders, health)
-  services/            # Business logic modules
-  schemas.py           # Pydantic request/response models
-scripts/
-  seed_demo_data.py    # Quick demo dataset loader
-tests/
-  test_inventory.py
-  test_orders.py
-```
+---
 
-## Getting Started
-### Requirements
-- Python 3.11+
-- Pip / virtualenv
+## 🚀 Quick Start
 
-### Install
+### New Users - Complete Setup
+
+**👉 See [SETUP.md](docs/SETUP.md) for the complete setup guide**
+
+This guide walks you through:
+- Installing Python and Node.js
+- Setting up the database
+- Creating staff accounts
+- Adding products and customers
+- Configuring backups
+- Daily operations
+
+### Experienced Users - Fast Track
+
 ```bash
-python -m venv .venv
+# 1. Clone/navigate to project
+cd "/home/baxterkrug/Documents/Card Catalog POS"
+
+# 2. Set up Python environment
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-```
 
-### Database
-By default the app stores data in `checkoutdesignator.db` (SQLite). To use another database, set `CHECKOUT_DESIGNATOR_DATABASE_URL` (e.g., `postgresql+psycopg://user:pass@host/db`).
+# 3. Install frontend dependencies
+cd frontend && npm install && cd ..
 
-Initialize tables once:
-```bash
+# 4. Initialize database
 checkout-designator init-db
+python scripts/migrate_add_checklist.py
+python scripts/migrate_add_customer_fields.py
+python scripts/migrate_add_payments.py
+python scripts/migrate_add_preorder_orders.py
+python scripts/migrate_preorder_enhancements.py
+
+# 5. Create default data
+python scripts/seed_default_customer.py
+python scripts/seed_singles_item.py
+python scripts/seed_staff.py
+
+# 6. Start the application
+chmod +x start.sh
+./start.sh
 ```
 
-### Run the API
+**Access the system:**
+- Frontend: http://localhost:5173
+- API Docs: http://localhost:8000/api/docs
+
+**Default login**: `cayle` / `dev123` (change password immediately!)
+
+---
+
+## ✨ Key Features
+
+### Inventory Management
+- **Three-tier tracking**: Physical, Allocated, and Available quantities
+- **Smart allocation**: Automatic pre-order fulfillment (FIFO)
+- **Cost tracking**: Acquisition costs for profit analysis
+- **Barcode support**: USB scanner integration
+- **Adjustment logging**: Complete audit trail
+
+### Point of Sale
+- **Fast checkout**: Scan or search products
+- **Customer accounts**: Track purchases and store credit
+- **Multi-payment**: Cash, card, store credit
+- **Receipt printing**: ESC/POS compatible printers
+- **Order history**: Complete transaction records
+
+### Pre-Order System
+- **Set pre-orders**: Accept reservations for upcoming products
+- **FIFO allocation**: First come, first served when stock arrives
+- **Automatic fulfillment**: Orders filled as you receive stock
+- **Pickup tracking**: Know what's ready for customer pickup
+- **Payment tracking**: Full or partial payments
+
+### Staff Management
+- **Role-based access**: Owner, Manager, Employee permissions
+- **Daily checklists**: Opening/closing procedures with accountability
+- **User attribution**: Track who performed each action
+- **Shift tracking**: Monitor employee activities
+
+### Data Protection
+- **Automatic backups**: Scheduled database backups (4x daily recommended)
+- **30-day retention**: Compressed historical backups
+- **Network backup**: Copy to network shares automatically
+- **Easy restore**: One-command recovery from any backup
+- **Export options**: CSV, JSON, and SQL formats
+
+### Multi-Register Support
+- **Network access**: Access from multiple computers
+- **Shared database**: Real-time inventory sync across registers
+- **Concurrent users**: Multiple staff can work simultaneously
+- **Centralized data**: One source of truth for all operations
+
+---
+
+## 📚 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| **[SETUP.md](docs/SETUP.md)** | 📖 **Complete setup guide** - Start here! |
+| [DATABASE_BACKUP.md](docs/DATABASE_BACKUP.md) | Backup and restore procedures |
+| [CHECKLIST_SYSTEM.md](docs/CHECKLIST_SYSTEM.md) | Daily checklist features and tracking |
+| [PREORDER_SYSTEM.md](docs/PREORDER_SYSTEM.md) | Pre-order workflow and allocation |
+| [ORDER_SYSTEM.md](docs/ORDER_SYSTEM.md) | Order processing and fulfillment |
+| [BARCODE_SCANNER.md](docs/BARCODE_SCANNER.md) | Barcode scanner setup and configuration |
+| [DATA_ACCESS.md](docs/DATA_ACCESS.md) | Data export and external access |
+| [architecture.md](docs/architecture.md) | Technical architecture (for developers) |
+
+---
+
+## 🛠️ Technology Stack
+
+**Backend:**
+- **FastAPI** - Modern Python web framework
+- **SQLModel** - Database ORM (built on SQLAlchemy + Pydantic)
+- **SQLite** - Zero-config database (PostgreSQL ready)
+- **JWT** - Secure authentication
+- **Typer** - Command-line interface
+
+**Frontend:**
+- **React 18** - UI framework with TypeScript
+- **TanStack Query** - Server state management
+- **Tailwind CSS** - Utility-first styling
+- **Vite** - Lightning-fast dev server
+- **Radix UI** - Accessible component primitives
+
+**Development:**
+- **pytest** - Testing framework
+- **ESLint** - Code quality
+- **Git** - Version control
+
+---
+
+## 📁 Project Structure
+
+```
+Card Catalog POS/
+├── checkoutdesignator/          # Backend Python package
+│   ├── app/main.py              # FastAPI application entry point
+│   ├── routers/                 # API endpoints
+│   │   ├── customers.py         # Customer management
+│   │   ├── inventory.py         # Inventory operations
+│   │   ├── orders.py            # Order processing
+│   │   ├── preorders.py         # Pre-order system
+│   │   ├── users.py             # Staff user management
+│   │   ├── checklist.py         # Daily checklist system
+│   │   └── backup.py            # Database export endpoints
+│   ├── services/                # Business logic layer
+│   ├── models.py                # Database models
+│   ├── schemas.py               # API request/response models
+│   ├── auth.py                  # JWT authentication
+│   ├── database.py              # Database connection
+│   └── cli.py                   # Command-line interface
+│
+├── frontend/                    # React frontend
+│   ├── src/
+│   │   ├── pages/               # Main application pages
+│   │   ├── components/          # Reusable UI components
+│   │   ├── api/                 # API client functions
+│   │   ├── hooks/               # React Query hooks
+│   │   └── contexts/            # React contexts (auth, etc.)
+│   └── package.json
+│
+├── scripts/                     # Utility scripts
+│   ├── seed_staff.py            # Create staff accounts
+│   ├── seed_default_customer.py # Create default customer
+│   ├── seed_singles_item.py     # Create "Singles" item
+│   ├── backup_database.sh       # Database backup script
+│   └── migrate_*.py             # Database migrations
+│
+├── docs/                        # Documentation
+│   ├── SETUP.md                 # 📖 Complete setup guide
+│   ├── DATABASE_BACKUP.md       # Backup documentation
+│   └── ...                      # Other guides
+│
+├── tests/                       # Automated tests
+├── db_backups/                  # Automatic backup storage
+├── checkoutdesignator.db        # SQLite database (created on init)
+├── start.sh                     # Start script for both servers
+├── pyproject.toml               # Python dependencies
+└── README.md                    # This file
+```
+
+---
+
+## 🎯 Common Tasks
+
+### Start the System
 ```bash
-uvicorn checkoutdesignator.app.main:app --reload
+./start.sh
 ```
-Open http://127.0.0.1:8000/docs for interactive docs.
+- Backend: http://localhost:8000
+- Frontend: http://localhost:5173
 
-### CLI Quickstart
+### Add a User
 ```bash
-checkout-designator customers add --name "Jess Player" --email jess@example.com
-checkout-designator inventory upsert --sku MH3-SET --name "MH3 Set Booster" --physical-quantity 12 --unit-price-cents 3299
-checkout-designator orders create --customer-id 1
-checkout-designator orders add-item --order-id 1 --inventory-item-id 1 --quantity 2
-checkout-designator orders submit --order-id 1
-checkout-designator orders status --order-id 1 --status ready
+source .venv/bin/activate
+checkout-designator users add \
+  --name "John Smith" \
+  --username "john" \
+  --password "temp123" \
+  --role employee
 ```
 
-### Seed Demo Data
+### Add a Product
 ```bash
-python scripts/seed_demo_data.py
+checkout-designator inventory upsert \
+  --sku "PRODUCT-SKU" \
+  --name "Product Name" \
+  --physical-quantity 10 \
+  --unit-price-cents 1999
 ```
-This inserts sample customers, a Lotus, and a MH3 preorder queue to explore allocation behavior.
 
-### Tests
+### Backup Database
 ```bash
-pytest
+./scripts/backup_database.sh
 ```
 
-## Key Workflows
-- **Receiving:** `POST /inventory/{id}/receive` or `checkout-designator inventory receive` bumps physical count, triggers FIFO preorder allocation, and records an adjustment.
-- **Orders:** Draft -> Open (allocates units) -> Ready -> Picked Up (reduces physical + allocated) / Cancel (releases allocations).
-- **Preorders:** Create preorder items, accept claims, and auto-allocate when stock arrives. Fulfillment can optionally mark pickup immediately.
+### Restore from Backup
+```bash
+cp db_backups/latest.db checkoutdesignator.db
+./start.sh
+```
 
-## Configuration
-| Env Var | Default | Description |
-| --- | --- | --- |
-| `CHECKOUT_DESIGNATOR_APP_NAME` | `CheckoutDesignator` | UI title |
-| `CHECKOUT_DESIGNATOR_ATTRIBUTION` | `Built by SK R&D for SK Games` | Exposed in docs |
-| `CHECKOUT_DESIGNATOR_DATABASE_URL` | `sqlite:///./checkoutdesignator.db` | SQLAlchemy URL |
+### View API Documentation
+```bash
+# Start the system, then visit:
+# http://localhost:8000/api/docs
+```
 
-## Roadmap Ideas
-- Event prize inventory buckets.
-- Barcode scanning & label printing.
-- Web front-end for registers and customer self-service.
-- Postgres + row-level locking for multi-register deployments.
+---
+
+## 🔐 Security Notes
+
+### Change Default Passwords
+
+The seed script creates accounts with `dev123` as the password. **Change these immediately:**
+
+1. Log in as each user
+2. Go to Settings → Change Password
+3. Use strong passwords (8+ characters, letters + numbers)
+
+### Production Deployment
+
+For production use:
+- ✅ Change all default passwords
+- ✅ Set up automatic backups (see [DATABASE_BACKUP.md](docs/DATABASE_BACKUP.md))
+- ✅ Configure firewall rules for network access
+- ✅ Use HTTPS (reverse proxy like nginx)
+- ✅ Regular database backups to off-site location
+- ✅ Consider PostgreSQL for multi-store deployments
+
+---
+
+## 🐛 Troubleshooting
+
+### System won't start
+```bash
+# Check if ports are in use
+lsof -i :8000
+lsof -i :5173
+
+# Reinstall dependencies
+source .venv/bin/activate
+pip install -e ".[dev]"
+cd frontend && npm install && cd ..
+```
+
+### Can't log in
+```bash
+# List users
+source .venv/bin/activate
+checkout-designator users list
+
+# Recreate default staff
+python scripts/seed_staff.py
+```
+
+### Database errors
+```bash
+# Restore from backup
+cp db_backups/latest.db checkoutdesignator.db
+
+# Or vacuum database
+sqlite3 checkoutdesignator.db "VACUUM;"
+```
+
+**For more help, see [SETUP.md - Troubleshooting](docs/SETUP.md#troubleshooting)**
+
+---
+
+## 🎓 Learning Resources
+
+### For Store Staff
+- **[SETUP.md](docs/SETUP.md)** - Complete setup and daily operations guide
+- **Dashboard** - Check daily checklists and complete tasks
+- **Customers page** - Look up customer accounts and history
+- **Orders page** - Process sales and track fulfillment
+- **Pre-orders page** - Manage reservations and allocations
+
+### For Managers
+- All staff resources above, plus:
+- **Inventory page** - Receive stock, adjust quantities
+- **Reports** - View sales analytics and profit data
+- **Checklist history** - Monitor employee accountability
+- **Customer management** - Add/edit customer accounts
+
+### For Owners
+- All manager resources above, plus:
+- **User management** - Create staff accounts, set roles
+- **Settings** - Configure system preferences
+- **Backup exports** - Download data for analysis
+- **Financial reports** - Revenue, COGS, profit tracking
+
+### For Developers
+- **[architecture.md](docs/architecture.md)** - System architecture overview
+- **API Docs** - http://localhost:8000/api/docs (interactive)
+- **Source code** - Well-commented Python and TypeScript
+- **Tests** - `pytest` for backend, located in `tests/`
+
+---
+
+## 🚀 Roadmap
+
+### Completed ✅
+- ✅ Core POS functionality
+- ✅ Pre-order system with FIFO allocation
+- ✅ Customer accounts and store credit
+- ✅ Multi-user authentication with roles
+- ✅ Daily checklist system with tracking
+- ✅ Automatic database backups
+- ✅ Barcode scanner support
+- ✅ Cost tracking and profit analysis
+- ✅ Network multi-register support
+
+### Planned 🎯
+- 📋 Receipt printing integration
+- 📋 Email notifications for pre-orders
+- 📋 Buylist management system
+- 📋 Event management and prize tracking
+- 📋 Advanced reporting and analytics
+- 📋 Mobile app for customer pre-orders
+- 📋 Label printing for inventory
+- 📋 Integration with distributors (TCGplayer, etc.)
+
+---
+
+## 🤝 Contributing
+
+This is a private system built for SK Games, but improvements are welcome!
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with tests
+4. Submit a pull request
+
+---
+
+## 📄 License
+
+Copyright © 2026 SK R&D  
+Built for SK Games
+
+---
+
+## 💬 Support
+
+- **Documentation**: See [docs/](docs/) folder
+- **Issues**: https://github.com/BaxterKrug/Card-Catalog-POS/issues
+- **In-person**: Ask Baxter, Cayle, or Ian at the store
+
+---
+
+**Ready to get started? → [SETUP.md](docs/SETUP.md)**

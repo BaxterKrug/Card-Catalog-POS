@@ -6,7 +6,7 @@ from ..auth import create_access_token, get_current_user
 from ..dependencies import db_session
 from ..exceptions import CardPosError, ValidationError
 from ..models import User, UserRole
-from ..schemas import LoginRequest, LoginResponse, UserCreate, UserRead, UserUpdate
+from ..schemas import LoginRequest, LoginResponse, PasswordChangeRequest, UserCreate, UserRead, UserUpdate
 from ..services import users as user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -35,6 +35,24 @@ def list_users(session: Session = Depends(db_session)) -> list[UserRead]:
 def create_user(payload: UserCreate, session: Session = Depends(db_session)) -> UserRead:
     try:
         user = user_service.create_user(session, payload)
+    except CardPosError as exc:
+        raise_http_error(exc)
+    return _serialize_user(user)
+
+
+@router.patch("/{user_id}/password", response_model=UserRead)
+def change_user_password(
+    user_id: int,
+    payload: PasswordChangeRequest,
+    session: Session = Depends(db_session),
+    current_user: User = Depends(get_current_user)
+) -> UserRead:
+    # Only owners can change passwords
+    if current_user.role != UserRole.OWNER:
+        raise ValidationError("Only owners can change user passwords")
+    
+    try:
+        user = user_service.change_user_password(session, user_id, payload.new_password)
     except CardPosError as exc:
         raise_http_error(exc)
     return _serialize_user(user)

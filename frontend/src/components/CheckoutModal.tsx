@@ -104,9 +104,9 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-6 py-4">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-white/40">Checkout</p>
             <h2 className="text-2xl font-semibold text-white">Order #{order.id}</h2>
@@ -120,7 +120,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
         </div>
 
         {/* Content */}
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="space-y-6">
             {/* Order Summary */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -262,7 +262,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+        <div className="flex flex-shrink-0 items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
           <button
             onClick={onClose}
             className="rounded-full border border-white/10 px-6 py-2 text-sm text-white/80 hover:border-white/20"

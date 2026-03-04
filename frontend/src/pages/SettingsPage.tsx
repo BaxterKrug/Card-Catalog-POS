@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pencil, X } from "lucide-react";
 
-import { createUser, updateUser, type User } from "../api/users";
+import { createUser, updateUser, changeUserPassword, type User } from "../api/users";
 import { useUsers } from "../hooks/useUsers";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -66,6 +66,22 @@ const SettingsPage = () => {
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : "Unable to update user";
+      setError(message);
+      setNotice(null);
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: number; newPassword: string }) =>
+      changeUserPassword(userId, newPassword),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setEditingUser(null);
+      setNotice("Password changed successfully.");
+      setError(null);
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Unable to change password";
       setError(message);
       setNotice(null);
     },
@@ -196,6 +212,10 @@ const SettingsPage = () => {
                   onCancel={cancelEdit}
                   onSave={saveUserEdit}
                   isSaving={updateMutation.isPending}
+                  onChangePassword={(userId, newPassword) => 
+                    changePasswordMutation.mutate({ userId, newPassword })
+                  }
+                  isChangingPassword={changePasswordMutation.isPending}
                 />
               ))
             )}
@@ -314,15 +334,19 @@ interface UserRowProps {
   onCancel: () => void;
   onSave: (user: User, updates: Partial<User>) => void;
   isSaving: boolean;
+  onChangePassword: (userId: number, newPassword: string) => void;
+  isChangingPassword: boolean;
 }
 
-function UserRow({ user, isEditing, onEdit, onCancel, onSave, isSaving }: UserRowProps) {
+function UserRow({ user, isEditing, onEdit, onCancel, onSave, isSaving, onChangePassword, isChangingPassword }: UserRowProps) {
   const [editForm, setEditForm] = useState({
     name: user.name,
     role: user.role,
     title: user.title || "",
     email: user.email || "",
     is_active: user.is_active,
+    password: "",
+    changePassword: false,
   });
 
   const handleChange = (field: string, value: string | boolean) => {
@@ -330,13 +354,23 @@ function UserRow({ user, isEditing, onEdit, onCancel, onSave, isSaving }: UserRo
   };
 
   const handleSave = () => {
-    onSave(user, {
-      name: editForm.name,
-      role: editForm.role,
-      title: editForm.title || undefined,
-      email: editForm.email || undefined,
-      is_active: editForm.is_active,
-    });
+    // If changing password, handle that separately
+    if (editForm.changePassword && editForm.password) {
+      if (editForm.password.length < 4) {
+        alert("Password must be at least 4 characters");
+        return;
+      }
+      onChangePassword(user.id, editForm.password);
+    } else {
+      // Otherwise, save user info updates
+      onSave(user, {
+        name: editForm.name,
+        role: editForm.role,
+        title: editForm.title || undefined,
+        email: editForm.email || undefined,
+        is_active: editForm.is_active,
+      });
+    }
   };
 
   const getRoleBadgeColor = (role: string) => {
@@ -399,6 +433,31 @@ function UserRow({ user, isEditing, onEdit, onCancel, onSave, isSaving }: UserRo
             />
           </div>
 
+          <div className="md:col-span-2">
+            <label className="flex items-center gap-3 text-sm text-white">
+              <input
+                type="checkbox"
+                checked={editForm.changePassword}
+                onChange={(e) => handleChange("changePassword", e.target.checked)}
+                className="h-4 w-4 rounded border-white/30"
+              />
+              <span>Change password</span>
+            </label>
+            {editForm.changePassword && (
+              <div className="mt-2">
+                <label className="text-xs text-white/40 uppercase tracking-wider">New Password</label>
+                <input
+                  type="password"
+                  value={editForm.password}
+                  onChange={(e) => handleChange("password", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-[#080b12] px-3 py-2 text-white text-sm focus:border-accent focus:outline-none"
+                  placeholder="At least 4 characters"
+                  minLength={4}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-3 md:col-span-2">
             <input
               type="checkbox"
@@ -413,14 +472,14 @@ function UserRow({ user, isEditing, onEdit, onCancel, onSave, isSaving }: UserRo
         <div className="flex gap-2 pt-2">
           <button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isChangingPassword}
             className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-black disabled:opacity-50"
           >
-            {isSaving ? "Saving…" : "Save"}
+            {isSaving || isChangingPassword ? "Saving…" : editForm.changePassword ? "Change Password" : "Save"}
           </button>
           <button
             onClick={onCancel}
-            disabled={isSaving}
+            disabled={isSaving || isChangingPassword}
             className="rounded-full border border-white/20 px-4 py-1.5 text-sm font-medium text-white hover:bg-white/5 disabled:opacity-50"
           >
             Cancel

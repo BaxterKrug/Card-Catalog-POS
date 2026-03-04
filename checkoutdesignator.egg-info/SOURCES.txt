@@ -10,6 +10,7 @@ checkoutdesignator/dependencies.py
 checkoutdesignator/exceptions.py
 checkoutdesignator/models.py
 checkoutdesignator/schemas.py
+checkoutdesignator/schemas_checklist.py
 checkoutdesignator.egg-info/PKG-INFO
 checkoutdesignator.egg-info/SOURCES.txt
 checkoutdesignator.egg-info/dependency_links.txt
