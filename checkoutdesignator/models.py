@@ -1,4 +1,5 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from enum import Enum
 from typing import List, Optional
 
@@ -6,7 +7,8 @@ from sqlmodel import Field, Relationship, SQLModel
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Return current datetime in Chicago timezone."""
+    return datetime.now(ZoneInfo("America/Chicago"))
 
 
 class ProductCategory(str, Enum):

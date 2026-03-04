@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "CheckoutDesignator"
     attribution: str = "Built by SK R&D for SK Games"
     database_url: str = "sqlite:///./checkoutdesignator.db"
+    timezone: str = "America/Chicago"  # Central Time
     model_config = SettingsConfigDict(
         env_prefix="CHECKOUT_DESIGNATOR_",
         env_file=".env",
