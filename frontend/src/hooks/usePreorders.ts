@@ -142,6 +142,7 @@ export const useCancelPreorderClaim = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["preorders", "claims"] });
       queryClient.invalidateQueries({ queryKey: ["preorders", "items"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
     },
   });
 };

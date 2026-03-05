@@ -308,6 +308,40 @@ def refund_order(session: Session, order_id: int) -> Order:
         # If not picked up yet, just release allocations
         _release_allocations_for_order(session, order)
     
+    # Handle cash refunds - subtract from cash register
+    stmt = select(OrderPayment).where(
+        OrderPayment.order_id == order_id,
+        OrderPayment.payment_method == PaymentMethod.CASH
+    )
+    cash_payments = session.exec(stmt).all()
+    
+    if cash_payments:
+        # Find the current active cash register session
+        cash_session_stmt = (
+            select(CashRegisterSession)
+            .where(CashRegisterSession.is_active == True)
+            .order_by(CashRegisterSession.opened_at.desc())
+        )
+        cash_session = session.exec(cash_session_stmt).first()
+        
+        if cash_session:
+            # Sum up all cash payments for this order
+            total_cash_refund = sum(payment.amount_cents for payment in cash_payments)
+            
+            # Create an ADJUSTMENT transaction (negative amount subtracts from register)
+            refund_txn = CashRegisterTransaction(
+                session_id=cash_session.id,
+                transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+                amount_cents=-total_cash_refund,  # Negative to subtract money
+                description=f"Cash refund for order #{order_id}",
+                created_by_user_id=1,  # System user for automated refunds
+            )
+            session.add(refund_txn)
+            
+            # Update session balance
+            cash_session.current_balance_cents -= total_cash_refund
+            session.add(cash_session)
+    
     # Mark order as refunded
     order.status = OrderStatus.REFUNDED
     order.updated_at = utcnow()

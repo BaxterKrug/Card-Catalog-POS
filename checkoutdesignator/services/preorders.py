@@ -274,6 +274,31 @@ def cancel_preorder_claim(session: Session, claim_id: int) -> PreorderClaim:
     if not preorder_item:
         raise NotFoundError("Preorder item missing for claim")
     
+    # If the claim was paid in cash, refund to cash register
+    if claim.is_paid and claim.payment_method == PaymentMethod.CASH:
+        # Find the current active cash register session
+        stmt = (
+            select(CashRegisterSession)
+            .where(CashRegisterSession.is_active == True)
+            .order_by(CashRegisterSession.opened_at.desc())
+        )
+        cash_session = session.exec(stmt).first()
+        
+        if cash_session and claim.payment_amount_cents:
+            # Create an ADJUSTMENT transaction (negative amount subtracts from register)
+            refund_txn = CashRegisterTransaction(
+                session_id=cash_session.id,
+                transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+                amount_cents=-claim.payment_amount_cents,  # Negative because money goes out
+                description=f"Refund for cancelled preorder claim #{claim_id}",
+                created_by_user_id=1,  # System user for automated refunds
+            )
+            session.add(refund_txn)
+            
+            # Update session balance (subtract the refund)
+            cash_session.current_balance_cents -= claim.payment_amount_cents
+            session.add(cash_session)
+    
     # Release from preorder inventory allocation ONLY (do NOT touch main inventory)
     preorder_item.preorder_quantity_allocated -= claim.quantity_requested
     preorder_item.updated_at = utcnow()

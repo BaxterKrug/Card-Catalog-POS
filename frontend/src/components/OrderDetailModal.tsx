@@ -22,6 +22,7 @@ const OrderDetailModal = ({ order, onClose }: OrderDetailModalProps) => {
     mutationFn: (orderId: number) => refundOrder(orderId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
       onClose();
     },
   });
