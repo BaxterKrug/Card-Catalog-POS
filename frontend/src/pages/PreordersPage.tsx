@@ -4,7 +4,6 @@ import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePr
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
 import { useAuth } from "../contexts/AuthContext";
-import { useRecordCashTransaction } from "../hooks/useCashRegister";
 import type { PreorderItem, PreorderClaim } from "../api/preorders";
 
 const PreordersPage = () => {
@@ -23,6 +22,7 @@ const PreordersPage = () => {
   const [selectedClaimsForPayment, setSelectedClaimsForPayment] = useState<Set<number>>(new Set());
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [itemsPaidDuringCreation, setItemsPaidDuringCreation] = useState<Set<number>>(new Set());
+  const [itemPaymentMethods, setItemPaymentMethods] = useState<Map<number, string>>(new Map());
   const [cashTendered, setCashTendered] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [editClaimCashTendered, setEditClaimCashTendered] = useState<string>('');
@@ -45,7 +45,6 @@ const PreordersPage = () => {
   const updateItemMutation = useUpdatePreorderItem();
   const recordPaymentMutation = useRecordPreorderPayment();
   const cancelClaimMutation = useCancelPreorderClaim();
-  const recordCashTransactionMutation = useRecordCashTransaction();
 
   // Initialize edit claim form state when modal opens
   useEffect(() => {
@@ -793,13 +792,14 @@ const PreordersPage = () => {
                       const preorderItem = preorderItems.find(pi => pi.id === itemId);
                       const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                       const amount = invItem?.msrp_cents || 0;
+                      const paymentMethodForItem = itemPaymentMethods.get(itemId) || 'cash';
                       
                       await recordPaymentMutation.mutateAsync({
                         claimId: claim.id,
                         payment: {
                           is_paid: true,
                           payment_amount_cents: amount,
-                          payment_method: 'cash',
+                          payment_method: paymentMethodForItem,
                           payment_notes: 'Paid at preorder creation',
                         },
                       });
@@ -812,6 +812,7 @@ const PreordersPage = () => {
                   setSelectedCustomerForNewClaim(null);
                   setCustomerSearchQuery("");
                   setItemsPaidDuringCreation(new Set());
+                  setItemPaymentMethods(new Map());
                 }).catch(error => {
                   console.error('Error creating preorders:', error);
                   alert('Some preorders failed to create. Please check which items were successfully added.');
@@ -980,30 +981,94 @@ const PreordersPage = () => {
                           
                           {/* Payment checkbox - only show if item is not disabled */}
                           {!isDisabled && (
-                            <label 
-                              htmlFor={`paid_${item.id}`}
-                              className="mt-3 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 cursor-pointer hover:bg-accent/15 transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                name={`paid_${item.id}`}
-                                id={`paid_${item.id}`}
-                                onChange={(e) => {
-                                  // Also check the product checkbox when payment is checked
-                                  if (e.target.checked) {
-                                    const productCheckbox = document.querySelector(`input[name="product_${item.id}"]`) as HTMLInputElement;
-                                    if (productCheckbox && !productCheckbox.checked) {
-                                      productCheckbox.checked = true;
+                            <div className="mt-3 space-y-2">
+                              <label 
+                                htmlFor={`paid_${item.id}`}
+                                className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 cursor-pointer hover:bg-accent/15 transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  name={`paid_${item.id}`}
+                                  id={`paid_${item.id}`}
+                                  checked={itemsPaidDuringCreation.has(item.id)}
+                                  onChange={(e) => {
+                                    const newPaid = new Set(itemsPaidDuringCreation);
+                                    if (e.target.checked) {
+                                      newPaid.add(item.id);
+                                      // Set default payment method to cash
+                                      if (!itemPaymentMethods.has(item.id)) {
+                                        const newMethods = new Map(itemPaymentMethods);
+                                        newMethods.set(item.id, 'cash');
+                                        setItemPaymentMethods(newMethods);
+                                      }
+                                      // Also check the product checkbox when payment is checked
+                                      const productCheckbox = document.querySelector(`input[name="product_${item.id}"]`) as HTMLInputElement;
+                                      if (productCheckbox && !productCheckbox.checked) {
+                                        productCheckbox.checked = true;
+                                      }
+                                    } else {
+                                      newPaid.delete(item.id);
                                     }
-                                  }
-                                }}
-                                className="h-4 w-4 flex-shrink-0 rounded border-accent/30 text-accent focus:ring-accent"
-                              />
-                              <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
-                                <DollarSign size={14} className="flex-shrink-0" />
-                                <span className="whitespace-nowrap">Paid today</span>
-                              </div>
-                            </label>
+                                    setItemsPaidDuringCreation(newPaid);
+                                  }}
+                                  className="h-4 w-4 flex-shrink-0 rounded border-accent/30 text-accent focus:ring-accent"
+                                />
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
+                                  <DollarSign size={14} className="flex-shrink-0" />
+                                  <span className="whitespace-nowrap">Paid today</span>
+                                </div>
+                              </label>
+                              
+                              {itemsPaidDuringCreation.has(item.id) && (
+                                <div className="flex gap-2 pl-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMethods = new Map(itemPaymentMethods);
+                                      newMethods.set(item.id, 'cash');
+                                      setItemPaymentMethods(newMethods);
+                                    }}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      itemPaymentMethods.get(item.id) === 'cash'
+                                        ? 'bg-accent/20 text-accent border border-accent/40'
+                                        : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    Cash
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMethods = new Map(itemPaymentMethods);
+                                      newMethods.set(item.id, 'credit_card');
+                                      setItemPaymentMethods(newMethods);
+                                    }}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      itemPaymentMethods.get(item.id) === 'credit_card'
+                                        ? 'bg-accent/20 text-accent border border-accent/40'
+                                        : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    Card
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newMethods = new Map(itemPaymentMethods);
+                                      newMethods.set(item.id, 'store_credit');
+                                      setItemPaymentMethods(newMethods);
+                                    }}
+                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                                      itemPaymentMethods.get(item.id) === 'store_credit'
+                                        ? 'bg-accent/20 text-accent border border-accent/40'
+                                        : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    Credit
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       );
@@ -1026,6 +1091,7 @@ const PreordersPage = () => {
                     setSelectedCustomerForNewClaim(null);
                     setCustomerSearchQuery("");
                     setItemsPaidDuringCreation(new Set());
+                    setItemPaymentMethods(new Map());
                   }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
                 >
@@ -2042,24 +2108,6 @@ const PreordersPage = () => {
                       });
                     })
                   );
-
-                  // If payment was in cash, record it in the cash register
-                  if (paymentMethod === 'cash' && totalAmount > 0) {
-                    const itemCount = selectedClaimsForPayment.size;
-                    const customer = customers.find(c =>  {
-                      const firstClaim = preorderClaims.find(claim => selectedClaimsForPayment.has(claim.id));
-                      return firstClaim && c.id === firstClaim.customer_id;
-                    });
-                    const customerName = customer?.name || 'Customer';
-                    
-                    recordCashTransactionMutation.mutate({
-                      type: 'sale',
-                      amount_cents: totalAmount,
-                      description: `Preorder payment from ${customerName} (${itemCount} item${itemCount > 1 ? 's' : ''})`,
-                      reference_type: 'preorder',
-                      reference_id: Array.from(selectedClaimsForPayment)[0],
-                    });
-                  }
 
                   // Clear selection and close modal
                   setSelectedClaimsForPayment(new Set());

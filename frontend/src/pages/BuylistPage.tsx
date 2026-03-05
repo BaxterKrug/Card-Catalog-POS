@@ -4,7 +4,6 @@ import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2
 import { useCustomers } from "../hooks/useCustomers";
 import { useBuylistTransactions } from "../hooks/useBuylist";
 import { createBuylistTransaction, updateBuylistTransaction, deleteBuylistTransaction, CreateBuylistTransactionPayload, UpdateBuylistTransactionPayload } from "../api/buylist";
-import { useRecordCashTransaction } from "../hooks/useCashRegister";
 
 const BuylistPage = () => {
   const queryClient = useQueryClient();
@@ -13,6 +12,7 @@ const BuylistPage = () => {
 
   const [showNewTransaction, setShowNewTransaction] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "store_credit" | "cashapp" | "venmo">("cash");
   const [notes, setNotes] = useState("");
@@ -20,18 +20,19 @@ const BuylistPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editCustomerId, setEditCustomerId] = useState<number | null>(null);
+  const [editCustomerSearchTerm, setEditCustomerSearchTerm] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "store_credit" | "cashapp" | "venmo">("cash");
   const [editNotes, setEditNotes] = useState("");
-
-  const recordCashTransactionMutation = useRecordCashTransaction();
 
   const createMutation = useMutation({
     mutationFn: createBuylistTransaction,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["buylist"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
       setShowNewTransaction(false);
       setSelectedCustomerId(null);
+      setCustomerSearchTerm("");
       setAmount("");
       setNotes("");
       setError(null);
@@ -48,6 +49,7 @@ const BuylistPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["buylist"] });
       setEditingId(null);
+      setEditCustomerSearchTerm("");
       setError(null);
     },
     onError: (err: any) => {
@@ -89,26 +91,13 @@ const BuylistPage = () => {
       amount_cents: Math.round(amountValue * 100),
       payment_method: paymentMethod,
       notes: notes || undefined,
-    }, {
-      onSuccess: (transaction) => {
-        // If payment was in cash, record it in the cash register
-        if (paymentMethod === "cash") {
-          const customerName = getCustomerName(selectedCustomerId);
-          recordCashTransactionMutation.mutate({
-            type: "buylist_payout",
-            amount_cents: -Math.round(amountValue * 100), // Negative because cash is leaving
-            description: `Buylist payout to ${customerName}`,
-            reference_type: "buylist",
-            reference_id: transaction.id,
-          });
-        }
-      },
     });
   };
 
   const handleEdit = (txn: any) => {
     setEditingId(txn.id);
     setEditCustomerId(txn.customer_id);
+    setEditCustomerSearchTerm("");
     setEditAmount((txn.amount_cents / 100).toFixed(2));
     setEditPaymentMethod(txn.payment_method);
     setEditNotes(txn.notes || "");
@@ -140,6 +129,7 @@ const BuylistPage = () => {
 
   const handleCancelEdit = () => {
     setEditingId(null);
+    setEditCustomerSearchTerm("");
     setError(null);
   };
 
@@ -296,18 +286,40 @@ const BuylistPage = () => {
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <label className="mb-1 block text-xs text-white/40">Customer</label>
-                        <select
-                          value={editCustomerId || ""}
-                          onChange={(e) => setEditCustomerId(Number(e.target.value))}
-                          className="w-full rounded-lg border border-white/10 bg-[#080b12] px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                        >
-                          <option value="">Select a customer</option>
-                          {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
-                            <option key={customer.id} value={customer.id}>
-                              {customer.name}
-                            </option>
-                          ))}
-                        </select>
+                        {/* Search Input */}
+                        <div className="relative mb-2">
+                          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                          <input
+                            type="text"
+                            value={editCustomerSearchTerm}
+                            onChange={(e) => setEditCustomerSearchTerm(e.target.value)}
+                            placeholder="Search customers..."
+                            className="w-full rounded-lg border border-white/10 bg-[#080b12] py-2 pl-9 pr-3 text-xs text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
+                          />
+                        </div>
+                        {/* Customer List */}
+                        <div className="max-h-32 overflow-y-auto rounded-lg border border-white/10 bg-[#080b12]">
+                          {customers
+                            .filter(customer => 
+                              customer.name.toLowerCase().includes(editCustomerSearchTerm.toLowerCase()) ||
+                              customer.email?.toLowerCase().includes(editCustomerSearchTerm.toLowerCase())
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((customer) => (
+                              <button
+                                key={customer.id}
+                                type="button"
+                                onClick={() => setEditCustomerId(customer.id)}
+                                className={`w-full px-3 py-1.5 text-left text-xs transition hover:bg-white/5 ${
+                                  editCustomerId === customer.id
+                                    ? "bg-accent/20 text-accent"
+                                    : "text-white"
+                                }`}
+                              >
+                                {customer.name}
+                              </button>
+                            ))}
+                        </div>
                       </div>
                       <div>
                         <label className="mb-1 block text-xs text-white/40">Amount</label>
@@ -467,12 +479,15 @@ const BuylistPage = () => {
       {/* New Transaction Modal */}
       {showNewTransaction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0a0c12] p-6">
-            <div className="mb-6 flex items-center justify-between">
+          <div className="relative flex w-full max-w-lg flex-col max-h-[90vh] overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
+            {/* Header */}
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-6 py-4">
               <h2 className="text-xl font-semibold text-white">New Singles Purchase</h2>
               <button
                 onClick={() => {
                   setShowNewTransaction(false);
+                  setSelectedCustomerId(null);
+                  setCustomerSearchTerm("");
                   setError(null);
                 }}
                 className="text-white/60 hover:text-white"
@@ -481,141 +496,181 @@ const BuylistPage = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="mb-2 block text-sm text-white/70">
-                  <span className="text-xs uppercase tracking-[0.3em] text-white/40">Customer</span>
-                </label>
-                <select
-                  value={selectedCustomerId || ""}
-                  onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
-                  className="w-full rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white focus:border-accent focus:outline-none"
-                  required
-                >
-                  <option value="">Select a customer</option>
-                  {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                      {customer.email && ` (${customer.email})`}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Scrollable Content */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+              <form id="buylist-form" onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    <span className="text-xs uppercase tracking-[0.3em] text-white/40">Customer</span>
+                  </label>
+                  
+                  {/* Search Input */}
+                  <div className="relative mb-2">
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                    <input
+                      type="text"
+                      value={customerSearchTerm}
+                      onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                      placeholder="Search customers..."
+                      className="w-full rounded-xl border border-white/10 bg-[#080b12] py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  
+                  {/* Customer List */}
+                  <div className="max-h-40 overflow-y-auto rounded-xl border border-white/10 bg-[#080b12]">
+                    {customers
+                      .filter(customer => 
+                        customer.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+                        customer.email?.toLowerCase().includes(customerSearchTerm.toLowerCase())
+                      )
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((customer) => (
+                        <button
+                          key={customer.id}
+                          type="button"
+                          onClick={() => setSelectedCustomerId(customer.id)}
+                          className={`w-full px-4 py-2 text-left transition hover:bg-white/5 ${
+                            selectedCustomerId === customer.id
+                              ? "bg-accent/20 text-accent"
+                              : "text-white"
+                          }`}
+                        >
+                          <div className="font-medium">{customer.name}</div>
+                          {customer.email && (
+                            <div className="text-xs text-white/50">{customer.email}</div>
+                          )}
+                        </button>
+                      ))}
+                    {customers.filter(customer => 
+                        customer.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+                        customer.email?.toLowerCase().includes(customerSearchTerm.toLowerCase())
+                      ).length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-white/40">
+                        No customers found
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-              <div>
-                <label className="mb-2 block text-sm text-white/70">
-                  <span className="text-xs uppercase tracking-[0.3em] text-white/40">Amount</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60">$</span>
-                  <input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                    className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-8 pr-4 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
-                    required
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    <span className="text-xs uppercase tracking-[0.3em] text-white/40">Amount</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60">$</span>
+                    <input
+                      type="number"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-8 pr-4 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    <span className="text-xs uppercase tracking-[0.3em] text-white/40">Payment Method</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("cash")}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                        paymentMethod === "cash"
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                      }`}
+                    >
+                      <DollarSign size={16} className="mx-auto mb-1" />
+                      Cash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("store_credit")}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                        paymentMethod === "store_credit"
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                      }`}
+                    >
+                      <CreditCard size={16} className="mx-auto mb-1" />
+                      Store Credit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("cashapp")}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                        paymentMethod === "cashapp"
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                      }`}
+                    >
+                      <Smartphone size={16} className="mx-auto mb-1" />
+                      CashApp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("venmo")}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                        paymentMethod === "venmo"
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                      }`}
+                    >
+                      <Smartphone size={16} className="mx-auto mb-1" />
+                      Venmo
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-white/70">
+                    <span className="text-xs uppercase tracking-[0.3em] text-white/40">Notes (Optional)</span>
+                  </label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Add any notes about the purchase..."
+                    rows={3}
+                    className="w-full rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="mb-2 block text-sm text-white/70">
-                  <span className="text-xs uppercase tracking-[0.3em] text-white/40">Payment Method</span>
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("cash")}
-                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                      paymentMethod === "cash"
-                        ? "border-accent bg-accent/20 text-accent"
-                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
-                    }`}
-                  >
-                    <DollarSign size={16} className="mx-auto mb-1" />
-                    Cash
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("store_credit")}
-                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                      paymentMethod === "store_credit"
-                        ? "border-accent bg-accent/20 text-accent"
-                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
-                    }`}
-                  >
-                    <CreditCard size={16} className="mx-auto mb-1" />
-                    Store Credit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("cashapp")}
-                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                      paymentMethod === "cashapp"
-                        ? "border-accent bg-accent/20 text-accent"
-                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
-                    }`}
-                  >
-                    <Smartphone size={16} className="mx-auto mb-1" />
-                    CashApp
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("venmo")}
-                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
-                      paymentMethod === "venmo"
-                        ? "border-accent bg-accent/20 text-accent"
-                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
-                    }`}
-                  >
-                    <Smartphone size={16} className="mx-auto mb-1" />
-                    Venmo
-                  </button>
-                </div>
-              </div>
+                {error && (
+                  <div className="rounded-xl border border-rose-400/20 bg-rose-500/10 p-4">
+                    <p className="text-sm text-rose-200">{error}</p>
+                  </div>
+                )}
+              </form>
+            </div>
 
-              <div>
-                <label className="mb-2 block text-sm text-white/70">
-                  <span className="text-xs uppercase tracking-[0.3em] text-white/40">Notes (Optional)</span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Add any notes about the purchase..."
-                  rows={3}
-                  className="w-full rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
-                />
-              </div>
-
-              {error && (
-                <div className="rounded-xl border border-rose-400/20 bg-rose-500/10 p-4">
-                  <p className="text-sm text-rose-200">{error}</p>
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewTransaction(false);
-                    setError(null);
-                  }}
-                  className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="flex-1 rounded-lg bg-accent px-4 py-2 font-semibold text-[#061012] hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {createMutation.isPending ? "Recording..." : "Record Purchase"}
-                </button>
-              </div>
-            </form>
+            {/* Footer */}
+            <div className="flex flex-shrink-0 gap-3 border-t border-white/10 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewTransaction(false);
+                  setSelectedCustomerId(null);
+                  setCustomerSearchTerm("");
+                  setError(null);
+                }}
+                className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                form="buylist-form"
+                type="submit"
+                disabled={createMutation.isPending}
+                className="flex-1 rounded-lg bg-accent px-4 py-2 font-semibold text-[#061012] hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {createMutation.isPending ? "Recording..." : "Record Purchase"}
+              </button>
+            </div>
           </div>
         </div>
       )}

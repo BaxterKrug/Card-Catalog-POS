@@ -27,6 +27,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["orders", order.id] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
       setAmount("");
       setSelectedMethod(null);
     },

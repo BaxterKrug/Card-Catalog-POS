@@ -96,6 +96,9 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const addPaymentMutation = useMutation({
     mutationFn: ({ orderId, payment }: { orderId: number; payment: { payment_method: PaymentMethod; amount_cents: number } }) =>
       addOrderPayment(orderId, payment),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
+    },
   });
 
   const filteredInventory = inventory.filter(

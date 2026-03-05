@@ -130,6 +130,7 @@ export const useRecordPreorderPayment = () => {
       recordPreorderPayment(claimId, payment),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["preorders", "claims"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
     },
   });
 };
