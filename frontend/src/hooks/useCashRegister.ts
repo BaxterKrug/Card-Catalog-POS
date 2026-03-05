@@ -43,6 +43,18 @@ export const useCreateDeposit = () => {
   });
 };
 
+export const useCreateAdjustment = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: cashRegisterApi.createAdjustment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cashRegisterSession"] });
+      queryClient.invalidateQueries({ queryKey: ["cashRegisterTransactions"] });
+    },
+  });
+};
+
 export const useCashRegisterTransactions = (sessionId?: number) => {
   return useQuery({
     queryKey: ["cashRegisterTransactions", sessionId],

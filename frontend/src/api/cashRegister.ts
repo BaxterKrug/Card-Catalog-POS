@@ -34,6 +34,11 @@ export interface CashRegisterDepositCreate {
   notes?: string;
 }
 
+export interface CashRegisterAdjustmentCreate {
+  amount_cents: number; // Can be positive (add cash) or negative (remove cash)
+  notes?: string;
+}
+
 export const getCurrentSession = async (): Promise<CashRegisterSession | null> => {
   const response = await apiClient.get<CashRegisterSession | null>("/cash-register/current-session");
   return response.data;
@@ -51,6 +56,11 @@ export const closeSession = async (): Promise<CashRegisterSession> => {
 
 export const createDeposit = async (payload: CashRegisterDepositCreate): Promise<CashRegisterTransaction> => {
   const response = await apiClient.post<CashRegisterTransaction>("/cash-register/deposit", payload);
+  return response.data;
+};
+
+export const createAdjustment = async (payload: CashRegisterAdjustmentCreate): Promise<CashRegisterTransaction> => {
+  const response = await apiClient.post<CashRegisterTransaction>("/cash-register/adjustment", payload);
   return response.data;
 };
 

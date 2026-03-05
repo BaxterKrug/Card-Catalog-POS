@@ -5,6 +5,7 @@ import {
   useOpenSession,
   useCloseSession,
   useCreateDeposit,
+  useCreateAdjustment,
   useCashRegisterTransactions,
 } from "../hooks/useCashRegister";
 
@@ -14,9 +15,10 @@ const CashRegisterPage = () => {
   const openSessionMutation = useOpenSession();
   const closeSessionMutation = useCloseSession();
   const createDepositMutation = useCreateDeposit();
+  const createAdjustmentMutation = useCreateAdjustment();
 
   const [showOpenModal, setShowOpenModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   // Bill counts for opening balance
   const [count100s, setCount100s] = useState("");
   const [count50s, setCount50s] = useState("");
@@ -26,8 +28,9 @@ const CashRegisterPage = () => {
   const [count2s, setCount2s] = useState("");
   const [count1s, setCount1s] = useState("");
   const [openingNotes, setOpeningNotes] = useState("");
-  const [depositAmount, setDepositAmount] = useState("");
-  const [depositNotes, setDepositNotes] = useState("");
+  const [adjustmentAmount, setAdjustmentAmount] = useState("");
+  const [adjustmentNotes, setAdjustmentNotes] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState<"add" | "remove">("add");
 
   const formatCurrency = (cents: number) => {
     return `$${(cents / 100).toFixed(2)}`;
@@ -75,41 +78,13 @@ const CashRegisterPage = () => {
     );
   };
 
-  const handleCreateDeposit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(depositAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
-
-    if (session && amount > session.current_balance_cents / 100) {
-      alert("Cannot deposit more than the current register balance");
-      return;
-    }
-
-    createDepositMutation.mutate(
-      {
-        amount_cents: Math.round(amount * 100),
-        notes: depositNotes || undefined,
-      },
-      {
-        onSuccess: () => {
-          setShowDepositModal(false);
-          setDepositAmount("");
-          setDepositNotes("");
-        },
-      }
-    );
-  };
-
   const handleCloseSession = () => {
     if (confirm("Are you sure you want to close the current register session?")) {
       closeSessionMutation.mutate();
     }
   };
 
-  const getTransactionIcon = (type: string) => {
+  const getTransactionIcon = (type: string, amount: number) => {
     switch (type) {
       case "sale":
       case "starting_cash":
@@ -117,6 +92,10 @@ const CashRegisterPage = () => {
       case "buylist_payout":
       case "deposit":
         return <TrendingDown size={16} className="text-rose-400" />;
+      case "adjustment":
+        return amount >= 0 ? 
+          <TrendingUp size={16} className="text-emerald-400" /> : 
+          <TrendingDown size={16} className="text-rose-400" />;
       default:
         return <DollarSign size={16} className="text-white/40" />;
     }
@@ -160,11 +139,11 @@ const CashRegisterPage = () => {
         {session && session.is_active && (
           <div className="flex gap-3">
             <button
-              onClick={() => setShowDepositModal(true)}
+              onClick={() => setShowAdjustmentModal(true)}
               className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white hover:bg-white/10"
             >
               <Plus size={20} />
-              Make Deposit
+              Adjust Register
             </button>
             <button
               onClick={handleCloseSession}
@@ -232,7 +211,7 @@ const CashRegisterPage = () => {
                 className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4"
               >
                 <div className="flex items-center gap-4">
-                  {getTransactionIcon(txn.transaction_type)}
+                  {getTransactionIcon(txn.transaction_type, txn.amount_cents)}
                   <div>
                     <p className="font-medium text-white">{txn.description}</p>
                     <div className="mt-1 flex items-center gap-2 text-xs text-white/40">
@@ -424,12 +403,12 @@ const CashRegisterPage = () => {
         </div>
       )}
 
-      {/* Deposit Modal */}
-      {showDepositModal && (
+      {/* Adjustment Modal */}
+      {showAdjustmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
-            <h3 className="text-xl font-semibold text-white">Make Cash Deposit</h3>
-            <p className="mt-1 text-sm text-white/60">Remove cash from register to deposit at bank</p>
+            <h3 className="text-xl font-semibold text-white">Adjust Cash Register</h3>
+            <p className="mt-1 text-sm text-white/60">Add or remove cash from the register</p>
 
             {session && (
               <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3">
@@ -438,32 +417,95 @@ const CashRegisterPage = () => {
               </div>
             )}
 
-            <form onSubmit={handleCreateDeposit} className="mt-4 space-y-4">
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const amount = parseFloat(adjustmentAmount);
+              if (isNaN(amount) || amount <= 0) {
+                alert("Please enter a valid amount");
+                return;
+              }
+
+              const amountCents = Math.round(amount * 100);
+              const adjustmentCents = adjustmentType === "add" ? amountCents : -amountCents;
+
+              // Check if removal would result in negative balance
+              if (session && adjustmentType === "remove" && amountCents > session.current_balance_cents) {
+                alert("Cannot remove more than the current register balance");
+                return;
+              }
+
+              createAdjustmentMutation.mutate(
+                {
+                  amount_cents: adjustmentCents,
+                  notes: adjustmentNotes || undefined,
+                },
+                {
+                  onSuccess: () => {
+                    setShowAdjustmentModal(false);
+                    setAdjustmentAmount("");
+                    setAdjustmentNotes("");
+                    setAdjustmentType("add");
+                  },
+                }
+              );
+            }} className="mt-4 space-y-4">
+              {/* Add or Remove Toggle */}
               <div>
-                <label className="block text-sm text-white/60">Deposit Amount</label>
+                <label className="block text-sm text-white/60 mb-2">Adjustment Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustmentType("add")}
+                    className={`rounded-lg px-4 py-2 font-medium transition-colors ${
+                      adjustmentType === "add"
+                        ? "bg-emerald-500/20 border-2 border-emerald-500/50 text-emerald-300"
+                        : "bg-white/5 border-2 border-white/10 text-white/60 hover:bg-white/10"
+                    }`}
+                  >
+                    Add Cash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustmentType("remove")}
+                    className={`rounded-lg px-4 py-2 font-medium transition-colors ${
+                      adjustmentType === "remove"
+                        ? "bg-rose-500/20 border-2 border-rose-500/50 text-rose-300"
+                        : "bg-white/5 border-2 border-white/10 text-white/60 hover:bg-white/10"
+                    }`}
+                  >
+                    Remove Cash
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-white/60">Amount</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60">$</span>
                   <input
                     type="number"
                     step="0.01"
                     min="0.01"
-                    max={session ? session.current_balance_cents / 100 : undefined}
-                    value={depositAmount}
-                    onChange={(e) => setDepositAmount(e.target.value)}
+                    max={adjustmentType === "remove" && session ? session.current_balance_cents / 100 : undefined}
+                    value={adjustmentAmount}
+                    onChange={(e) => setAdjustmentAmount(e.target.value)}
                     required
                     placeholder="0.00"
                     className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-7 pr-3 text-white outline-none focus:border-white/20"
                   />
                 </div>
+                <p className="mt-1 text-xs text-white/40">
+                  {adjustmentType === "add" ? "Adding cash to register" : "Removing cash from register"}
+                </p>
               </div>
 
               <div>
                 <label className="block text-sm text-white/60">Notes (Optional)</label>
                 <textarea
-                  value={depositNotes}
-                  onChange={(e) => setDepositNotes(e.target.value)}
+                  value={adjustmentNotes}
+                  onChange={(e) => setAdjustmentNotes(e.target.value)}
                   rows={2}
-                  placeholder="Deposit details..."
+                  placeholder="Reason for adjustment..."
                   className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
                 />
               </div>
@@ -471,17 +513,26 @@ const CashRegisterPage = () => {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowDepositModal(false)}
+                  onClick={() => {
+                    setShowAdjustmentModal(false);
+                    setAdjustmentAmount("");
+                    setAdjustmentNotes("");
+                    setAdjustmentType("add");
+                  }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={createDepositMutation.isPending}
-                  className="flex-1 rounded-lg bg-accent px-4 py-2 font-semibold text-[#061012] hover:bg-accent/90 disabled:opacity-50"
+                  disabled={createAdjustmentMutation.isPending}
+                  className={`flex-1 rounded-lg px-4 py-2 font-semibold disabled:opacity-50 ${
+                    adjustmentType === "add"
+                      ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                      : "bg-rose-500 text-white hover:bg-rose-600"
+                  }`}
                 >
-                  {createDepositMutation.isPending ? "Processing..." : "Make Deposit"}
+                  {createAdjustmentMutation.isPending ? "Processing..." : `${adjustmentType === "add" ? "Add" : "Remove"} Cash`}
                 </button>
               </div>
             </form>

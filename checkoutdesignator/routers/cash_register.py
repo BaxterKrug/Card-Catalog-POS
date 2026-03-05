@@ -58,6 +58,11 @@ class CashRegisterDepositCreate(BaseModel):
     notes: str | None = None
 
 
+class CashRegisterAdjustmentCreate(BaseModel):
+    amount_cents: int  # Can be positive (add cash) or negative (remove cash)
+    notes: str | None = None
+
+
 @router.get("/current-session", response_model=CashRegisterSessionRead | None)
 def get_current_session(
     session: Session = Depends(db_session),
@@ -210,6 +215,69 @@ def create_deposit(
     
     # Update session balance
     active_session.current_balance_cents -= payload.amount_cents
+    session.add(active_session)
+    
+    session.commit()
+    session.refresh(transaction)
+    
+    return CashRegisterTransactionRead(
+        id=transaction.id or 0,
+        session_id=transaction.session_id,
+        transaction_type=transaction.transaction_type,
+        amount_cents=transaction.amount_cents,
+        description=transaction.description,
+        reference_type=transaction.reference_type,
+        reference_id=transaction.reference_id,
+        created_by_user_id=transaction.created_by_user_id,
+        created_at=transaction.created_at.isoformat(),
+        notes=transaction.notes,
+    )
+
+
+@router.post("/adjustment", response_model=CashRegisterTransactionRead, status_code=201)
+def create_adjustment(
+    payload: CashRegisterAdjustmentCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(db_session),
+) -> CashRegisterTransactionRead:
+    """Record a cash register adjustment (add or remove cash manually)
+    
+    Use positive amount_cents to add cash, negative to remove cash.
+    """
+    # Get active session
+    statement = select(CashRegisterSession).where(
+        CashRegisterSession.is_active == True
+    )
+    active_session = session.exec(statement).first()
+    
+    if not active_session:
+        raise HTTPException(
+            status_code=404,
+            detail="No active cash register session found. Please open a session first."
+        )
+    
+    # Check if removal would result in negative balance
+    new_balance = active_session.current_balance_cents + payload.amount_cents
+    if new_balance < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot adjust register: would result in negative balance (${new_balance / 100:.2f})"
+        )
+    
+    # Create adjustment transaction
+    adjustment_type = "addition" if payload.amount_cents > 0 else "removal"
+    transaction = CashRegisterTransaction(
+        session_id=active_session.id or 0,
+        transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+        amount_cents=payload.amount_cents,
+        description=f"Manual cash {adjustment_type}",
+        created_by_user_id=current_user.id or 0,
+        notes=payload.notes,
+    )
+    session.add(transaction)
+    
+    # Update session balance
+    active_session.current_balance_cents += payload.amount_cents
     session.add(active_session)
     
     session.commit()

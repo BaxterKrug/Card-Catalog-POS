@@ -45,6 +45,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Find the Walk-in Customer (ID: 1) or use the first customer
   const defaultCustomer = customers.find(c => c.name === "Walk-in Customer") || customers[0];
@@ -344,6 +345,9 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
       return;
     }
 
+    // Prevent double-clicks
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     setError(null);
 
     try {
@@ -389,6 +393,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to complete order";
       setError(message);
+      setIsSubmitting(false);
     }
   };
 
@@ -1016,10 +1021,10 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                       </button>
                       <button
                         onClick={handleCompleteOrder}
-                        disabled={submitOrderMutation.isPending}
+                        disabled={isSubmitting}
                         className="flex-1 rounded-full bg-gradient-to-r from-accent to-indigo-500 px-6 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {submitOrderMutation.isPending ? "Completing..." : "Complete Order"}
+                        {isSubmitting ? "Completing..." : "Complete Order"}
                       </button>
                     </div>
                   </div>
