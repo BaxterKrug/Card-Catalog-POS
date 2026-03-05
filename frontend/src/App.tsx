@@ -8,6 +8,7 @@ import OrdersPage from "./pages/OrdersPage";
 import PreordersPage from "./pages/PreordersPage";
 import CustomersPage from "./pages/CustomersPage";
 import BuylistPage from "./pages/BuylistPage";
+import CashRegisterPage from "./pages/CashRegisterPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import { useAuth } from "./contexts/AuthContext";
@@ -53,6 +54,14 @@ function App() {
         <Route path="/preorders" element={<PreordersPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/buylist" element={<BuylistPage />} />
+        <Route 
+          path="/cash-register" 
+          element={
+            <ProtectedRoute allowedRoles={["owner", "manager"]}>
+              <CashRegisterPage />
+            </ProtectedRoute>
+          } 
+        />
         <Route 
           path="/settings" 
           element={

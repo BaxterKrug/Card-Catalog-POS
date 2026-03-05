@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Boxes, ShoppingCart, Sparkles, Users, DollarSign, Settings, Menu, LogOut } from "lucide-react";
+import { Home, Boxes, ShoppingCart, Sparkles, Users, DollarSign, Wallet, Settings, Menu, LogOut } from "lucide-react";
 import clsx from "clsx";
 import { useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
@@ -11,6 +11,7 @@ const allLinks = [
   { to: "/preorders", label: "Preorders", icon: Sparkles, roles: ["owner", "manager", "employee"] },
   { to: "/customers", label: "Customers", icon: Users, roles: ["owner", "manager", "employee"] },
   { to: "/buylist", label: "Buylist", icon: DollarSign, roles: ["owner", "manager", "employee"] },
+  { to: "/cash-register", label: "Cash Register", icon: Wallet, roles: ["owner", "manager"] },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["owner", "manager"] }
 ];
 
