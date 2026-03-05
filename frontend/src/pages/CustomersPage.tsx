@@ -44,7 +44,7 @@ const CustomersPage = () => {
         )}
         {!isLoading && !isError && customers.length > 0 && (
           <div className="space-y-3">
-            {customers.map((customer) => (
+            {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
               <div
                 key={customer.id}
                 className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white"

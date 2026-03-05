@@ -832,13 +832,15 @@ const PreordersPage = () => {
                 {/* Customer List */}
                 <div className="mt-2 max-h-60 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/5 p-2">
                   {(() => {
-                    const filteredCustomers = customers.filter(customer => {
-                      const query = customerSearchQuery.toLowerCase();
-                      return (
-                        customer.name.toLowerCase().includes(query) ||
-                        (customer.email && customer.email.toLowerCase().includes(query))
-                      );
-                    });
+                    const filteredCustomers = customers
+                      .filter(customer => {
+                        const query = customerSearchQuery.toLowerCase();
+                        return (
+                          customer.name.toLowerCase().includes(query) ||
+                          (customer.email && customer.email.toLowerCase().includes(query))
+                        );
+                      })
+                      .sort((a, b) => a.name.localeCompare(b.name));
 
                     if (filteredCustomers.length === 0) {
                       return (

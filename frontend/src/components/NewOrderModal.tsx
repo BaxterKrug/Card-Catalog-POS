@@ -460,13 +460,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                   {/* Customer List */}
                   <div className="max-h-60 space-y-1 overflow-y-auto rounded-2xl border border-white/10 bg-[#080b12] p-2">
                     {(() => {
-                      const filteredCustomers = customers.filter(customer => {
-                        const query = customerSearchQuery.toLowerCase();
-                        return (
-                          customer.name.toLowerCase().includes(query) ||
-                          (customer.email && customer.email.toLowerCase().includes(query))
-                        );
-                      });
+                      const filteredCustomers = customers
+                        .filter(customer => {
+                          const query = customerSearchQuery.toLowerCase();
+                          return (
+                            customer.name.toLowerCase().includes(query) ||
+                            (customer.email && customer.email.toLowerCase().includes(query))
+                          );
+                        })
+                        .sort((a, b) => a.name.localeCompare(b.name));
 
                       if (filteredCustomers.length === 0) {
                         return (

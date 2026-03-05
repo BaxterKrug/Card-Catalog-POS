@@ -236,7 +236,7 @@ const BuylistPage = () => {
                           className="w-full rounded-lg border border-white/10 bg-[#080b12] px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
                         >
                           <option value="">Select a customer</option>
-                          {customers.map((customer) => (
+                          {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
                             <option key={customer.id} value={customer.id}>
                               {customer.name}
                             </option>
@@ -399,7 +399,7 @@ const BuylistPage = () => {
                   required
                 >
                   <option value="">Select a customer</option>
-                  {customers.map((customer) => (
+                  {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
                     <option key={customer.id} value={customer.id}>
                       {customer.name}
                       {customer.email && ` (${customer.email})`}
