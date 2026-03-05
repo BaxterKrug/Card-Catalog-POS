@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, UserPlus, CreditCard, DollarSign, Sparkles } from "lucide-react";
+import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, UserPlus, CreditCard, DollarSign, Sparkles, Calendar } from "lucide-react";
 import { createOrder, addOrderItem, submitOrder, addOrderPayment, type OrderItemCreateInput, type DiscountType, type PaymentMethod } from "../api/orders";
 import { useCustomers } from "../hooks/useCustomers";
 import { useInventory } from "../hooks/useInventory";
@@ -169,6 +169,34 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     
     // Automatically open price editor and set temp price to empty
     setEditingPrice(newSinglesItem.id);
+    setTempPrice("");
+  };
+
+  const addEventsItem = () => {
+    // Find or warn about Events inventory item
+    const eventsInventory = inventory.find(item => item.sku === "EVENTS" || item.sku === "EVENT");
+    
+    if (!eventsInventory) {
+      setError("No Events inventory item found. Please create an 'EVENTS' SKU in inventory first.");
+      return;
+    }
+
+    // Add an Events line item with unique ID (allows multiple instances)
+    const newEventsItem: CartItem = {
+      id: `cart-${nextCartItemId}`,
+      inventory_item_id: eventsInventory.id,
+      sku: eventsInventory.sku,
+      name: "Event Entry",
+      category: "other",
+      quantity: 1,
+      unit_price_cents: 0, // Will be set by user
+      original_price_cents: 0,
+    };
+    setCart([...cart, newEventsItem]);
+    setNextCartItemId(nextCartItemId + 1);
+    
+    // Automatically open price editor and set temp price to empty
+    setEditingPrice(newEventsItem.id);
     setTempPrice("");
   };
 
@@ -468,6 +496,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                     >
                       <Sparkles size={18} />
                       Singles
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addEventsItem}
+                      className="flex items-center gap-2 rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-3 text-green-400 hover:border-green-500 hover:bg-green-500/20"
+                      title="Add event entry (custom price)"
+                    >
+                      <Calendar size={18} />
+                      Events
                     </button>
                   </div>
                 </label>
