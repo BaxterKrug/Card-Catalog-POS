@@ -30,6 +30,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
       queryClient.invalidateQueries({ queryKey: ["cash-register"] });
       setAmount("");
       setSelectedMethod(null);
+      setError(null);
     },
   });
 
@@ -41,20 +42,40 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
   const paidCents = order.payments?.reduce((sum, p) => sum + p.amount_cents, 0) || 0;
   const remainingCents = totalCents - paidCents;
 
+  // Calculate change - always calculate when amount > remaining
+  const enteredAmount = parseFloat(amount) || 0;
+  const enteredCents = Math.round(enteredAmount * 100);
+  const showChange = enteredCents > remainingCents;
+  const changeDue = showChange ? enteredCents - remainingCents : 0;
+
+  // Clear error when amount or payment method changes
+  const handleAmountChange = (value: string) => {
+    setAmount(value);
+    setError(null);
+  };
+
+  const handleMethodChange = (method: PaymentMethod) => {
+    setSelectedMethod(method);
+    setError(null);
+  };
+
   const handleAddPayment = async () => {
     if (!selectedMethod) {
       setError("Please select a payment method");
       return;
     }
 
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
+    const amountValue = parseFloat(amount);
+    if (isNaN(amountValue) || amountValue <= 0) {
       setError("Please enter a valid amount");
       return;
     }
 
-    const amountCents = Math.round(amountNum * 100);
-    if (amountCents > remainingCents) {
+    const amountInCents = Math.round(amountValue * 100);
+    
+    // Only cash can exceed remaining (customer paying with larger bill)
+    const isCashPayment = selectedMethod === "cash";
+    if (!isCashPayment && amountInCents > remainingCents) {
       setError("Amount exceeds remaining balance");
       return;
     }
@@ -62,17 +83,22 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
     setError(null);
 
     try {
+      // For cash overpayment, only record the actual order amount
+      const paymentAmount = isCashPayment && amountInCents > remainingCents 
+        ? remainingCents 
+        : amountInCents;
+
       // Add payment
       await addPaymentMutation.mutateAsync({
         orderId: order.id,
         payment: {
           payment_method: selectedMethod,
-          amount_cents: amountCents,
+          amount_cents: paymentAmount,
         },
       });
 
       // Check if order is fully paid
-      const newPaidCents = paidCents + amountCents;
+      const newPaidCents = paidCents + paymentAmount;
       if (newPaidCents >= totalCents) {
         // Order is fully paid, close modal
         if (onComplete) {
@@ -88,8 +114,8 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
   };
 
   const handleQuickPay = (method: PaymentMethod) => {
-    setSelectedMethod(method);
-    setAmount((remainingCents / 100).toFixed(2));
+    handleMethodChange(method);
+    handleAmountChange((remainingCents / 100).toFixed(2));
   };
 
   const paymentMethods: { value: PaymentMethod; label: string; icon: typeof CreditCard }[] = [
@@ -205,7 +231,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
                       return (
                         <button
                           key={method.value}
-                          onClick={() => setSelectedMethod(method.value)}
+                          onClick={() => handleMethodChange(method.value)}
                           className={`flex flex-col items-center gap-1 rounded-xl border px-3 py-3 text-xs transition ${
                             selectedMethod === method.value
                               ? "border-accent bg-accent/20 text-accent"
@@ -226,11 +252,10 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
                       <input
                         type="number"
                         value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        onChange={(e) => handleAmountChange(e.target.value)}
                         placeholder="0.00"
                         step="0.01"
                         min="0"
-                        max={remainingCents / 100}
                         className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-8 pr-4 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
                       />
                     </div>
@@ -242,6 +267,14 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
                       {addPaymentMutation.isPending ? "Adding..." : "Add"}
                     </button>
                   </div>
+
+                  {/* Change Display - shows when cash selected and amount > remaining */}
+                  {selectedMethod === "cash" && showChange && (
+                    <div className="flex items-center justify-between rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+                      <span className="text-sm font-medium text-green-200">Change Due:</span>
+                      <span className="text-2xl font-bold text-green-400">{formatCurrency(changeDue)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Error Message */}

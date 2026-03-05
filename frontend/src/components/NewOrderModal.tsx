@@ -279,6 +279,12 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const paidCents = payments.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
   const remainingCents = finalTotalCents - paidCents;
 
+  // Calculate change for cash payments
+  const enteredPaymentAmount = parseFloat(paymentAmount) || 0;
+  const enteredPaymentCents = Math.round(enteredPaymentAmount * 100);
+  const showChange = selectedPaymentMethod === "cash" && enteredPaymentCents > remainingCents;
+  const changeDue = showChange ? enteredPaymentCents - remainingCents : 0;
+
   const handleProceedToCheckout = () => {
     if (!selectedCustomerId) {
       setError("Please select a customer");
@@ -307,13 +313,22 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     }
 
     const amountCents = Math.round(amount * 100);
-    if (amountCents > remainingCents) {
+    
+    // Only cash can exceed remaining (customer paying with larger bill)
+    const isCash = selectedPaymentMethod === "cash";
+    if (!isCash && amountCents > remainingCents) {
       setError("Amount exceeds remaining balance");
       return;
     }
 
     setError(null);
-    setPayments([...payments, { method: selectedPaymentMethod, amount }]);
+    
+    // For cash overpayment, only add the remaining amount to payments
+    const paymentToAdd = isCash && amountCents > remainingCents 
+      ? remainingCents / 100 
+      : amount;
+    
+    setPayments([...payments, { method: selectedPaymentMethod, amount: paymentToAdd }]);
     setPaymentAmount("");
     setSelectedPaymentMethod(null);
   };
@@ -944,7 +959,6 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                             placeholder="0.00"
                             step="0.01"
                             min="0"
-                            max={remainingCents / 100}
                             className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-8 pr-4 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
                           />
                         </div>
@@ -956,6 +970,14 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                           Add
                         </button>
                       </div>
+
+                      {/* Change Display */}
+                      {showChange && (
+                        <div className="flex items-center justify-between rounded-2xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+                          <span className="text-sm font-medium text-green-200">Change Due:</span>
+                          <span className="text-2xl font-bold text-green-400">${(changeDue / 100).toFixed(2)}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Error Message */}
