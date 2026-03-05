@@ -17,7 +17,14 @@ const CashRegisterPage = () => {
 
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
-  const [openingBalance, setOpeningBalance] = useState("");
+  // Bill counts for opening balance
+  const [count100s, setCount100s] = useState("");
+  const [count50s, setCount50s] = useState("");
+  const [count20s, setCount20s] = useState("");
+  const [count10s, setCount10s] = useState("");
+  const [count5s, setCount5s] = useState("");
+  const [count2s, setCount2s] = useState("");
+  const [count1s, setCount1s] = useState("");
   const [openingNotes, setOpeningNotes] = useState("");
   const [depositAmount, setDepositAmount] = useState("");
   const [depositNotes, setDepositNotes] = useState("");
@@ -31,23 +38,37 @@ const CashRegisterPage = () => {
     return date.toLocaleDateString() + " " + date.toLocaleTimeString();
   };
 
+  const calculateTotal = () => {
+    const hundreds = parseInt(count100s) || 0;
+    const fifties = parseInt(count50s) || 0;
+    const twenties = parseInt(count20s) || 0;
+    const tens = parseInt(count10s) || 0;
+    const fives = parseInt(count5s) || 0;
+    const twos = parseInt(count2s) || 0;
+    const ones = parseInt(count1s) || 0;
+    
+    return (hundreds * 100) + (fifties * 50) + (twenties * 20) + (tens * 10) + (fives * 5) + (twos * 2) + ones;
+  };
+
   const handleOpenSession = (e: React.FormEvent) => {
     e.preventDefault();
-    const amount = parseFloat(openingBalance);
-    if (isNaN(amount) || amount < 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
+    const totalAmount = calculateTotal();
 
     openSessionMutation.mutate(
       {
-        opening_balance_cents: Math.round(amount * 100),
+        opening_balance_cents: Math.round(totalAmount * 100),
         notes: openingNotes || undefined,
       },
       {
         onSuccess: () => {
           setShowOpenModal(false);
-          setOpeningBalance("");
+          setCount100s("");
+          setCount50s("");
+          setCount20s("");
+          setCount10s("");
+          setCount5s("");
+          setCount2s("");
+          setCount1s("");
           setOpeningNotes("");
         },
       }
@@ -243,23 +264,131 @@ const CashRegisterPage = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
             <h3 className="text-xl font-semibold text-white">Open Cash Register</h3>
-            <p className="mt-1 text-sm text-white/60">Enter the starting cash amount for this session</p>
+            <p className="mt-1 text-sm text-white/60">Count each denomination of bills in the drawer</p>
 
             <form onSubmit={handleOpenSession} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm text-white/60">Starting Cash Amount</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60">$</span>
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-white/80">Bill Counts</label>
+                
+                {/* $100 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$100:</label>
                   <input
                     type="number"
-                    step="0.01"
                     min="0"
-                    value={openingBalance}
-                    onChange={(e) => setOpeningBalance(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-7 pr-3 text-white outline-none focus:border-white/20"
+                    value={count100s}
+                    onChange={(e) => setCount100s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
                   />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count100s) || 0) * 100).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $50 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$50:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count50s}
+                    onChange={(e) => setCount50s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count50s) || 0) * 50).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $20 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$20:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count20s}
+                    onChange={(e) => setCount20s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count20s) || 0) * 20).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $10 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$10:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count10s}
+                    onChange={(e) => setCount10s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count10s) || 0) * 10).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $5 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$5:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count5s}
+                    onChange={(e) => setCount5s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count5s) || 0) * 5).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $2 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$2:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count2s}
+                    onChange={(e) => setCount2s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${((parseInt(count2s) || 0) * 2).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* $1 Bills */}
+                <div className="flex items-center gap-3">
+                  <label className="w-16 text-sm text-white/60">$1:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={count1s}
+                    onChange={(e) => setCount1s(e.target.value)}
+                    placeholder="0"
+                    className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  />
+                  <span className="w-20 text-right text-sm text-white/60">
+                    ${(parseInt(count1s) || 0).toFixed(2)}
+                  </span>
+                </div>
+
+                {/* Total */}
+                <div className="flex items-center gap-3 border-t border-white/10 pt-3">
+                  <label className="w-16 text-sm font-semibold text-white">Total:</label>
+                  <div className="flex-1"></div>
+                  <span className="w-20 text-right text-lg font-bold text-accent">
+                    ${calculateTotal().toFixed(2)}
+                  </span>
                 </div>
               </div>
 
