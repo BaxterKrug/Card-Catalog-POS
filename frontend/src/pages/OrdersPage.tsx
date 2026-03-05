@@ -296,11 +296,11 @@ const OrdersPage = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-2 text-sm text-white focus:border-accent focus:outline-none"
+            className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-2 text-sm text-white focus:border-accent focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
           >
-            <option value="all">All Statuses</option>
+            <option value="all" className="bg-gray-900 text-white">All Statuses</option>
             {availableStatuses.map((status) => (
-              <option key={status} value={status}>
+              <option key={status} value={status} className="bg-gray-900 text-white">
                 {status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()}
               </option>
             ))}
@@ -309,13 +309,13 @@ const OrdersPage = () => {
           <select
             value={customerFilter}
             onChange={(e) => setCustomerFilter(e.target.value)}
-            className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-2 text-sm text-white focus:border-accent focus:outline-none"
+            className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-2 text-sm text-white focus:border-accent focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
           >
-            <option value="all">All Customers</option>
+            <option value="all" className="bg-gray-900 text-white">All Customers</option>
             {customers
               .filter((customer) => orders.some((order) => order.customer_id === customer.id))
               .map((customer) => (
-                <option key={customer.id} value={customer.id.toString()}>
+                <option key={customer.id} value={customer.id.toString()} className="bg-gray-900 text-white">
                   {customer.name}
                 </option>
               ))}

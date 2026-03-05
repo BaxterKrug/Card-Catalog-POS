@@ -1,4 +1,4 @@
-import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2 } from "lucide-react";
+import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard } from "lucide-react";
 import { useState } from "react";
 import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
@@ -18,6 +18,10 @@ const PreordersPage = () => {
   const [viewingItemClaims, setViewingItemClaims] = useState<PreorderItem | null>(null);
   const [viewingOrderClaims, setViewingOrderClaims] = useState<number | null>(null);
   const [selectedCustomerForNewClaim, setSelectedCustomerForNewClaim] = useState<number | null>(null);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
+  const [selectedClaimsForPayment, setSelectedClaimsForPayment] = useState<Set<number>>(new Set());
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [itemsPaidDuringCreation, setItemsPaidDuringCreation] = useState<Set<number>>(new Set());
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
@@ -164,11 +168,11 @@ const PreordersPage = () => {
           <select
             value={selectedGameFilter}
             onChange={(e) => setSelectedGameFilter(e.target.value)}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-white/20"
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
           >
-            <option value="all">All Games</option>
+            <option value="all" className="bg-gray-900 text-white">All Games</option>
             {gameTitles.map(game => (
-              <option key={game} value={game}>{game}</option>
+              <option key={game} value={game} className="bg-gray-900 text-white">{game}</option>
             ))}
           </select>
         </div>
@@ -393,81 +397,149 @@ const PreordersPage = () => {
         )}
       </div>
 
-      {/* Claims List - Grouped by Customer/Order */}
+      {/* Claims List - Grouped by Customer */}
       {preorderClaims.length > 0 && (
         <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-          <h2 className="mb-4 text-lg font-semibold text-white">Recent Customer Preorders</h2>
+          <h2 className="mb-4 text-lg font-semibold text-white">Customer Preorders</h2>
           <div className="space-y-4">
             {(() => {
-              // Group claims by preorder_order_id
-              const groupedOrders = preorderClaims.reduce((acc, claim) => {
-                if (!acc[claim.preorder_order_id]) {
-                  acc[claim.preorder_order_id] = [];
+              // Group claims by customer_id
+              const groupedByCustomer = preorderClaims.reduce((acc, claim) => {
+                if (!acc[claim.customer_id]) {
+                  acc[claim.customer_id] = [];
                 }
-                acc[claim.preorder_order_id].push(claim);
+                acc[claim.customer_id].push(claim);
                 return acc;
               }, {} as Record<number, PreorderClaim[]>);
 
-              // Convert to array and sort by earliest claim's created_at in each order
-              const sortedOrders = Object.entries(groupedOrders)
-                .map(([orderId, claims]) => ({
-                  orderId: parseInt(orderId),
-                  claims: claims.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
-                  earliestDate: claims.reduce((earliest, claim) => {
+              // Convert to array and sort by most recent activity
+              const sortedCustomers = Object.entries(groupedByCustomer)
+                .map(([customerId, claims]) => ({
+                  customerId: parseInt(customerId),
+                  claims: claims.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+                  latestDate: claims.reduce((latest, claim) => {
                     const claimDate = new Date(claim.created_at);
-                    return claimDate < earliest ? claimDate : earliest;
+                    return claimDate > latest ? claimDate : latest;
                   }, new Date(claims[0].created_at))
                 }))
-                .sort((a, b) => b.earliestDate.getTime() - a.earliestDate.getTime())
-                .slice(0, 10);
+                .sort((a, b) => b.latestDate.getTime() - a.latestDate.getTime());
 
-              return sortedOrders.map(({ orderId, claims }) => {
-                const customer = customers.find(c => c.id === claims[0].customer_id);
+              return sortedCustomers.map(({ customerId, claims }) => {
+                const customer = customers.find(c => c.id === customerId);
                 const activeClaims = claims;
                 const paidClaims = activeClaims.filter(c => c.is_paid);
+                const unpaidClaims = activeClaims.filter(c => !c.is_paid);
                 const totalPaid = paidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
+                const totalUnpaid = unpaidClaims.reduce((sum, c) => {
+                  const preorderItem = preorderItems.find(pi => pi.id === c.preorder_item_id);
+                  const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                  return sum + (invItem?.msrp_cents || 0);
+                }, 0);
+                
+                // Group by order for display
+                const orderGroups = activeClaims.reduce((acc, claim) => {
+                  if (!acc[claim.preorder_order_id]) {
+                    acc[claim.preorder_order_id] = [];
+                  }
+                  acc[claim.preorder_order_id].push(claim);
+                  return acc;
+                }, {} as Record<number, PreorderClaim[]>);
 
                 return (
                   <div
-                    key={orderId}
+                    key={customerId}
                     className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3"
                   >
-                    {/* Order Header */}
+                    {/* Customer Header */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <span 
-                          className="text-base font-semibold cursor-pointer hover:text-accent transition-colors"
-                          onClick={() => setViewingOrderClaims(orderId)}
-                        >
-                          Preorder #{orderId}
-                        </span>
-                        <span className="text-sm text-white/60">
-                          {customer?.name || `Customer ${claims[0].customer_id}`}
+                        <span className="text-lg font-bold text-white">
+                          {customer?.name || `Customer ${customerId}`}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm">
+                      <div className="flex items-center gap-3 text-sm">
                         <span className="text-white/60">
                           {activeClaims.length} {activeClaims.length === 1 ? 'item' : 'items'}
                         </span>
+                        {paidClaims.length === activeClaims.length && activeClaims.length > 0 && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                            <DollarSign size={12} />
+                            Fully Paid
+                          </span>
+                        )}
+                        {paidClaims.length > 0 && paidClaims.length < activeClaims.length && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                            <DollarSign size={12} />
+                            Partial ({paidClaims.length}/{activeClaims.length})
+                          </span>
+                        )}
+                        {paidClaims.length === 0 && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-xs font-semibold text-rose-300">
+                            Unpaid
+                          </span>
+                        )}
                         {paidClaims.length > 0 && (
                           <div className="flex items-center gap-2 text-emerald-300">
-                            <DollarSign size={14} />
+                            <span className="text-xs">Paid:</span>
                             <span className="font-semibold">{formatCurrency(totalPaid)}</span>
                           </div>
                         )}
-                        {paidClaims.length < activeClaims.length && (
-                          <span className="text-amber-300">
-                            {activeClaims.length - paidClaims.length} unpaid
-                          </span>
+                        {unpaidClaims.length > 0 && (
+                          <>
+                            <div className="flex items-center gap-2 text-amber-300">
+                              <span className="text-xs">Owe:</span>
+                              <span className="font-semibold">{formatCurrency(totalUnpaid)}</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                // Select all unpaid claims from this customer
+                                const newSelection = new Set(selectedClaimsForPayment);
+                                unpaidClaims.forEach(c => newSelection.add(c.id));
+                                setSelectedClaimsForPayment(newSelection);
+                                setShowPaymentModal(true);
+                              }}
+                              className="flex items-center gap-1.5 rounded-full bg-accent/20 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/30 transition-colors"
+                            >
+                              <CreditCard size={12} />
+                              Pay All
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
 
-                    {/* Order Items */}
-                    <div className="space-y-2 pl-4 border-l-2 border-white/10">
-                      {claims.map((claim) => {
+                    {/* Orders within customer - grouped by order ID */}
+                    <div className="space-y-3">
+                      {Object.entries(orderGroups)
+                        .sort(([, claimsA], [, claimsB]) => 
+                          new Date(claimsB[0].created_at).getTime() - new Date(claimsA[0].created_at).getTime()
+                        )
+                        .map(([orderId, orderClaims]) => {
+                          const orderPaid = orderClaims.filter(c => c.is_paid).length;
+                          
+                          return (
+                            <div key={orderId} className="pl-4 border-l-2 border-white/10">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span 
+                                  className="text-xs font-semibold text-white/60 cursor-pointer hover:text-accent transition-colors"
+                                  onClick={() => setViewingOrderClaims(parseInt(orderId))}
+                                >
+                                  Order #{orderId}
+                                </span>
+                                <span className="text-xs text-white/40">
+                                  ({orderClaims.length} {orderClaims.length === 1 ? 'item' : 'items'})
+                                </span>
+                                {orderPaid > 0 && orderPaid < orderClaims.length && (
+                                  <span className="text-xs text-amber-400">
+                                    {orderPaid}/{orderClaims.length} paid
+                                  </span>
+                                )}
+                              </div>
+                              <div className="space-y-2">
+                                {orderClaims.map((claim) => {
                         const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                         const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                        const isSelected = selectedClaimsForPayment.has(claim.id);
                         
                         return (
                           <div
@@ -475,6 +547,23 @@ const PreordersPage = () => {
                             className="flex items-center justify-between text-sm"
                           >
                             <div className="flex items-center gap-3 flex-1">
+                              {!claim.is_paid && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const newSelection = new Set(selectedClaimsForPayment);
+                                    if (e.target.checked) {
+                                      newSelection.add(claim.id);
+                                    } else {
+                                      newSelection.delete(claim.id);
+                                    }
+                                    setSelectedClaimsForPayment(newSelection);
+                                  }}
+                                  className="h-4 w-4 rounded border-white/20 bg-white/10 text-accent focus:ring-accent"
+                                />
+                              )}
+                              {claim.is_paid && <span className="w-4"></span>}
                               <span className="text-white/60">•</span>
                               <span 
                                 className="text-white cursor-pointer hover:text-accent transition-colors"
@@ -483,15 +572,18 @@ const PreordersPage = () => {
                                 {invItem?.name || `Item #${claim.preorder_item_id}`}
                               </span>
                               <span className="text-white/40 text-xs">Qty: {claim.quantity_requested}</span>
+                              {!claim.is_paid && invItem?.msrp_cents && (
+                                <span className="text-white/60 text-xs">({formatCurrency(invItem.msrp_cents)})</span>
+                              )}
                             </div>
                             <div className="flex items-center gap-3">
                               {claim.is_paid ? (
-                                <div className="flex items-center gap-2 text-emerald-300">
-                                  <DollarSign size={12} />
-                                  <span className="text-xs font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                  <DollarSign size={10} />
+                                  {formatCurrency(claim.payment_amount_cents)}
+                                </span>
                               ) : (
-                                <span className="text-amber-300 text-xs">Unpaid</span>
+                                <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">Unpaid</span>
                               )}
                               <button
                                 onClick={() => setEditingClaim(claim)}
@@ -503,6 +595,10 @@ const PreordersPage = () => {
                           </div>
                         );
                       })}
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
                 );
@@ -515,7 +611,7 @@ const PreordersPage = () => {
       {/* New Preorder Item Modal */}
       {showNewItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
             <h3 className="text-xl font-semibold text-white">New Preorder Product</h3>
             <p className="mt-1 text-sm text-white/60">Set up a preorder for an upcoming release</p>
             <form
@@ -654,11 +750,12 @@ const PreordersPage = () => {
                 const formData = new FormData(e.currentTarget);
                 const customerId = parseInt(formData.get('customer_id') as string);
                 
-                // Collect all selected products
-                const selectedProducts: number[] = [];
+                // Collect all selected products and their payment status
+                const selectedProducts: { itemId: number; isPaid: boolean }[] = [];
                 preorderItems.forEach(item => {
                   if (formData.get(`product_${item.id}`) === 'on') {
-                    selectedProducts.push(item.id);
+                    const isPaid = formData.get(`paid_${item.id}`) === 'on';
+                    selectedProducts.push({ itemId: item.id, isPaid });
                   }
                 });
 
@@ -667,18 +764,40 @@ const PreordersPage = () => {
                   return;
                 }
 
-                // Create claims for each selected product
+                // Create claims for each selected product, then mark as paid if needed
                 Promise.all(
-                  selectedProducts.map(preorderItemId =>
-                    createClaimMutation.mutateAsync({
-                      preorder_item_id: preorderItemId,
+                  selectedProducts.map(async ({ itemId, isPaid }) => {
+                    // First create the claim
+                    const claim = await createClaimMutation.mutateAsync({
+                      preorder_item_id: itemId,
                       customer_id: customerId,
                       quantity_requested: 1,
-                    })
-                  )
+                    });
+                    
+                    // If marked as paid, record the payment
+                    if (isPaid) {
+                      const preorderItem = preorderItems.find(pi => pi.id === itemId);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      const amount = invItem?.msrp_cents || 0;
+                      
+                      await recordPaymentMutation.mutateAsync({
+                        claimId: claim.id,
+                        payment: {
+                          is_paid: true,
+                          payment_amount_cents: amount,
+                          payment_method: 'cash',
+                          payment_notes: 'Paid at preorder creation',
+                        },
+                      });
+                    }
+                    
+                    return claim;
+                  })
                 ).then(() => {
                   setShowNewClaimModal(false);
                   setSelectedCustomerForNewClaim(null);
+                  setCustomerSearchQuery("");
+                  setItemsPaidDuringCreation(new Set());
                 }).catch(error => {
                   console.error('Error creating preorders:', error);
                   alert('Some preorders failed to create. Please check which items were successfully added.');
@@ -687,21 +806,84 @@ const PreordersPage = () => {
               className="mt-4 space-y-4"
             >
               <div>
-                <label className="block text-sm text-white/60">Customer</label>
-                <select
+                <label className="block text-sm text-white/60 mb-2">Customer</label>
+                
+                {/* Search Input */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+                  <input
+                    type="text"
+                    value={customerSearchQuery}
+                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                    placeholder="Search customers by name or email..."
+                    className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-10 pr-10 text-white outline-none focus:border-white/20"
+                  />
+                  {customerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                    >
+                      <X size={18} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Customer List */}
+                <div className="mt-2 max-h-60 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/5 p-2">
+                  {(() => {
+                    const filteredCustomers = customers.filter(customer => {
+                      const query = customerSearchQuery.toLowerCase();
+                      return (
+                        customer.name.toLowerCase().includes(query) ||
+                        (customer.email && customer.email.toLowerCase().includes(query))
+                      );
+                    });
+
+                    if (filteredCustomers.length === 0) {
+                      return (
+                        <p className="py-4 text-center text-sm text-white/40">
+                          {customerSearchQuery ? 'No customers found' : 'No customers available'}
+                        </p>
+                      );
+                    }
+
+                    return filteredCustomers.map(customer => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        onClick={() => setSelectedCustomerForNewClaim(customer.id)}
+                        className={`w-full rounded-lg px-3 py-2 text-left transition-all ${
+                          selectedCustomerForNewClaim === customer.id
+                            ? 'bg-accent/20 border border-accent/50 text-white'
+                            : 'bg-white/5 border border-transparent text-white/80 hover:bg-white/10'
+                        }`}
+                      >
+                        <p className="font-medium">{customer.name}</p>
+                        {customer.email && (
+                          <p className="text-xs text-white/60">{customer.email}</p>
+                        )}
+                      </button>
+                    ));
+                  })()}
+                </div>
+                
+                {/* Hidden input for form submission */}
+                <input
+                  type="hidden"
                   name="customer_id"
-                  required
                   value={selectedCustomerForNewClaim || ''}
-                  onChange={(e) => setSelectedCustomerForNewClaim(e.target.value ? parseInt(e.target.value) : null)}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
-                >
-                  <option value="">Select a customer...</option>
-                  {customers.map(customer => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name} {customer.email && `(${customer.email})`}
-                    </option>
-                  ))}
-                </select>
+                  required
+                />
+                
+                {!selectedCustomerForNewClaim && (
+                  <p className="mt-1 text-xs text-white/40">Please select a customer to continue</p>
+                )}
+                {selectedCustomerForNewClaim && (
+                  <p className="mt-1 text-xs text-emerald-300">
+                    ✓ Customer selected: {customers.find(c => c.id === selectedCustomerForNewClaim)?.name}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -715,12 +897,14 @@ const PreordersPage = () => {
                       const available = item.preorder_quantity - item.preorder_quantity_allocated;
                       
                       // Check if this customer has already claimed this item
-                      const customerAlreadyClaimed = selectedCustomerForNewClaim 
-                        ? preorderClaims.some(claim => 
+                      const existingClaim = selectedCustomerForNewClaim 
+                        ? preorderClaims.find(claim => 
                             claim.customer_id === selectedCustomerForNewClaim && 
                             claim.preorder_item_id === item.id
                           )
-                        : false;
+                        : null;
+                      
+                      const customerAlreadyClaimed = !!existingClaim;
                       
                       const isDisabled = available <= 0 || customerAlreadyClaimed;
                       const disabledReason = customerAlreadyClaimed 
@@ -730,38 +914,80 @@ const PreordersPage = () => {
                         : '';
                       
                       return (
-                        <label
+                        <div
                           key={item.id}
-                          className={`flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 ${
-                            isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-white/10'
+                          className={`rounded-lg border border-white/10 bg-white/5 p-3 ${
+                            isDisabled ? 'opacity-50' : ''
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            name={`product_${item.id}`}
-                            disabled={isDisabled}
-                            className="h-4 w-4 rounded border-white/20 bg-white/10"
-                          />
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-white">
-                              {invItem?.name || `Item #${item.id}`}
-                              {customerAlreadyClaimed && (
-                                <span className="ml-2 text-xs text-amber-300">✓ Already pre-ordered</span>
-                              )}
-                            </p>
-                            <p className="text-xs text-white/60">
-                              {invItem?.game_title && `${invItem.game_title} • `}
-                              {disabledReason || `Available: ${available}`}
-                            </p>
-                          </div>
-                        </label>
+                          {/* Main product selection */}
+                          <label className="flex items-start gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              name={`product_${item.id}`}
+                              disabled={isDisabled}
+                              className="mt-1 h-4 w-4 flex-shrink-0 rounded border-white/20 bg-white/10"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium text-white break-words">
+                                  {invItem?.name || `Item #${item.id}`}
+                                </p>
+                                {existingClaim && (
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold flex-shrink-0 ${
+                                    existingClaim.is_paid 
+                                      ? 'bg-emerald-500/20 text-emerald-300' 
+                                      : 'bg-amber-500/20 text-amber-300'
+                                  }`}>
+                                    {existingClaim.is_paid && <DollarSign size={10} />}
+                                    {existingClaim.is_paid ? 'Paid' : 'Unpaid'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/60">
+                                {invItem?.game_title && (
+                                  <span>{invItem.game_title}</span>
+                                )}
+                                {invItem?.game_title && (disabledReason || available > 0) && (
+                                  <span>•</span>
+                                )}
+                                <span>{disabledReason || `Available: ${available}`}</span>
+                                {!isDisabled && invItem?.msrp_cents && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-medium text-white">{formatCurrency(invItem.msrp_cents)}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </label>
+                          
+                          {/* Payment checkbox - only show if item is not disabled */}
+                          {!isDisabled && (
+                            <label 
+                              htmlFor={`paid_${item.id}`}
+                              className="mt-3 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 cursor-pointer hover:bg-accent/15 transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                name={`paid_${item.id}`}
+                                id={`paid_${item.id}`}
+                                className="h-4 w-4 flex-shrink-0 rounded border-accent/30 text-accent focus:ring-accent"
+                              />
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
+                                <DollarSign size={14} className="flex-shrink-0" />
+                                <span className="whitespace-nowrap">Paid today</span>
+                              </div>
+                            </label>
+                          )}
+                        </div>
                       );
                     })
                   )}
                 </div>
                 <p className="mt-2 text-xs text-white/40">
                   {selectedCustomerForNewClaim 
-                    ? 'Customer will get 1 unit of each selected product' 
+                    ? 'Select products and check "Customer paid today" for items paid during preorder creation' 
                     : 'Select a customer to see available products'
                   }
                 </p>
@@ -773,6 +999,8 @@ const PreordersPage = () => {
                   onClick={() => {
                     setShowNewClaimModal(false);
                     setSelectedCustomerForNewClaim(null);
+                    setCustomerSearchQuery("");
+                    setItemsPaidDuringCreation(new Set());
                   }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
                 >
@@ -780,10 +1008,10 @@ const PreordersPage = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={createClaimMutation.isPending}
+                  disabled={createClaimMutation.isPending || recordPaymentMutation.isPending}
                   className="flex-1 rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/15 disabled:opacity-50"
                 >
-                  {createClaimMutation.isPending ? 'Creating...' : 'Create Preorders'}
+                  {(createClaimMutation.isPending || recordPaymentMutation.isPending) ? 'Creating...' : 'Create Preorders'}
                 </button>
               </div>
             </form>
@@ -794,7 +1022,7 @@ const PreordersPage = () => {
       {/* Edit Preorder Item Modal */}
       {editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
             <h3 className="text-xl font-semibold text-white">Edit Preorder Item</h3>
             <p className="mt-1 text-sm text-white/60">Update preorder details</p>
             <form
@@ -937,7 +1165,7 @@ const PreordersPage = () => {
       {/* Edit Preorder Claim Modal */}
       {editingClaim && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
             <h3 className="text-xl font-semibold text-white">Edit Customer Preorder</h3>
             <p className="mt-1 text-sm text-white/60">Update payment and status information</p>
             <form
@@ -1004,7 +1232,7 @@ const PreordersPage = () => {
                 <select
                   name="is_paid"
                   defaultValue={editingClaim.is_paid ? 'true' : 'false'}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
                   onChange={(e) => {
                     const form = e.target.form;
                     const paymentFields = form?.querySelector('#payment-fields') as HTMLElement;
@@ -1013,8 +1241,8 @@ const PreordersPage = () => {
                     }
                   }}
                 >
-                  <option value="false">Unpaid</option>
-                  <option value="true">Paid</option>
+                  <option value="false" className="bg-gray-900 text-white">Unpaid</option>
+                  <option value="true" className="bg-gray-900 text-white">Paid</option>
                 </select>
               </div>
 
@@ -1037,13 +1265,13 @@ const PreordersPage = () => {
                   <select
                     name="payment_method"
                     defaultValue={editingClaim.payment_method || 'cash'}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
                   >
-                    <option value="cash">Cash</option>
-                    <option value="card">Card</option>
-                    <option value="store_credit">Store Credit</option>
-                    <option value="check">Check</option>
-                    <option value="other">Other</option>
+                    <option value="cash" className="bg-gray-900 text-white">Cash</option>
+                    <option value="card" className="bg-gray-900 text-white">Card</option>
+                    <option value="store_credit" className="bg-gray-900 text-white">Store Credit</option>
+                    <option value="check" className="bg-gray-900 text-white">Check</option>
+                    <option value="other" className="bg-gray-900 text-white">Other</option>
                   </select>
                 </div>
 
@@ -1286,17 +1514,23 @@ const PreordersPage = () => {
                             <p className="text-xs text-white/40">{customer.email}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-white/60">Total Qty: {totalQty}</span>
-                          {paidCount > 0 && (
-                            <div className="flex items-center gap-2 text-emerald-300">
-                              <DollarSign size={14} />
-                              <span className="text-sm font-semibold">{formatCurrency(totalPaid)}</span>
-                            </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-white/60">Qty: {totalQty}</span>
+                          {paidCount === claims.length && claims.length > 0 && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                              <DollarSign size={12} />
+                              Paid {formatCurrency(totalPaid)}
+                            </span>
                           )}
-                          {paidCount < claims.length && (
-                            <span className="text-amber-300 text-sm">
-                              {claims.length - paidCount} unpaid
+                          {paidCount > 0 && paidCount < claims.length && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                              <DollarSign size={12} />
+                              Partial {formatCurrency(totalPaid)}
+                            </span>
+                          )}
+                          {paidCount === 0 && (
+                            <span className="inline-flex items-center rounded-full bg-rose-500/20 px-2.5 py-1 text-xs font-semibold text-rose-300">
+                              Unpaid
                             </span>
                           )}
                         </div>
@@ -1324,12 +1558,12 @@ const PreordersPage = () => {
                             </div>
                             <div className="flex items-center gap-3">
                               {claim.is_paid ? (
-                                <div className="flex items-center gap-2 text-emerald-300">
-                                  <DollarSign size={12} />
-                                  <span className="text-xs font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                  <DollarSign size={10} />
+                                  {formatCurrency(claim.payment_amount_cents)}
+                                </span>
                               ) : (
-                                <span className="text-amber-300 text-xs">Unpaid</span>
+                                <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">Unpaid</span>
                               )}
                               <button
                                 onClick={() => {
@@ -1397,24 +1631,69 @@ const PreordersPage = () => {
             {(() => {
               const orderClaims = preorderClaims.filter(c => c.preorder_order_id === viewingOrderClaims);
               const paidCount = orderClaims.filter(c => c.is_paid).length;
+              const unpaidClaims = orderClaims.filter(c => !c.is_paid);
               const totalPaid = orderClaims.filter(c => c.is_paid).reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
+              const selectedInOrder = orderClaims.filter(c => selectedClaimsForPayment.has(c.id));
+              const selectedTotal = selectedInOrder.reduce((sum, c) => {
+                const preorderItem = preorderItems.find(pi => pi.id === c.preorder_item_id);
+                const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                return sum + (invItem?.msrp_cents || 0);
+              }, 0);
               
               return (
-                <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-center gap-6 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/40">Total Items:</span>
-                      <span className="font-semibold text-white">{orderClaims.length}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/40">Paid Items:</span>
-                      <span className="font-semibold text-emerald-300">{paidCount}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/40">Total Deposits:</span>
-                      <span className="font-semibold text-emerald-300">{formatCurrency(totalPaid)}</span>
+                <div className="mb-4 space-y-3">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-6 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">Total Items:</span>
+                        <span className="font-semibold text-white">{orderClaims.length}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">Paid Items:</span>
+                        <span className="font-semibold text-emerald-300">{paidCount}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">Total Deposits:</span>
+                        <span className="font-semibold text-emerald-300">{formatCurrency(totalPaid)}</span>
+                      </div>
                     </div>
                   </div>
+                  
+                  {unpaidClaims.length > 0 && (
+                    <div className="flex items-center justify-between rounded-lg border border-accent/20 bg-accent/10 p-3">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            const newSelection = new Set(selectedClaimsForPayment);
+                            unpaidClaims.forEach(c => newSelection.add(c.id));
+                            setSelectedClaimsForPayment(newSelection);
+                          }}
+                          className="rounded-lg border border-accent/50 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"
+                        >
+                          Select All Unpaid
+                        </button>
+                        {selectedInOrder.length > 0 && (
+                          <>
+                            <span className="text-sm text-white/60">
+                              {selectedInOrder.length} selected
+                            </span>
+                            <span className="text-sm font-semibold text-accent">
+                              {formatCurrency(selectedTotal)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {selectedInOrder.length > 0 && (
+                        <button
+                          onClick={() => setShowPaymentModal(true)}
+                          className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-[#061012] hover:bg-accent/90"
+                        >
+                          <CreditCard size={14} />
+                          Pay Selected
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1426,37 +1705,59 @@ const PreordersPage = () => {
                 .map((claim) => {
                   const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                   const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                  const isSelected = selectedClaimsForPayment.has(claim.id);
                   
                   return (
                     <div
                       key={claim.id}
                       className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white"
                     >
-                      <div 
-                        className="flex items-center gap-4 flex-1 cursor-pointer hover:bg-white/5 -mx-4 -my-3 px-4 py-3 rounded-xl transition-colors"
-                        onClick={() => {
-                          setViewingOrderClaims(null);
-                          if (preorderItem) {
-                            setViewingItemClaims(preorderItem);
-                          }
-                        }}
-                      >
-                        <div className="flex-1">
-                          <p className="font-medium">{invItem?.name || `Preorder Item #${claim.preorder_item_id}`}</p>
-                          {invItem?.game_title && (
-                            <p className="text-xs text-white/40">{invItem.game_title}</p>
+                      <div className="flex items-center gap-3 flex-1">
+                        {!claim.is_paid && (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const newSelection = new Set(selectedClaimsForPayment);
+                              if (e.target.checked) {
+                                newSelection.add(claim.id);
+                              } else {
+                                newSelection.delete(claim.id);
+                              }
+                              setSelectedClaimsForPayment(newSelection);
+                            }}
+                            className="h-4 w-4 rounded border-white/20 bg-white/10 text-accent focus:ring-accent"
+                          />
+                        )}
+                        <div 
+                          className="flex items-center gap-4 flex-1 cursor-pointer hover:bg-white/5 -mx-4 -my-3 px-4 py-3 rounded-xl transition-colors"
+                          onClick={() => {
+                            setViewingOrderClaims(null);
+                            if (preorderItem) {
+                              setViewingItemClaims(preorderItem);
+                            }
+                          }}
+                        >
+                          <div className="flex-1">
+                            <p className="font-medium">{invItem?.name || `Preorder Item #${claim.preorder_item_id}`}</p>
+                            {invItem?.game_title && (
+                              <p className="text-xs text-white/40">{invItem.game_title}</p>
+                            )}
+                          </div>
+                          <span className="text-white/60">Qty: {claim.quantity_requested}</span>
+                          {!claim.is_paid && invItem?.msrp_cents && (
+                            <span className="text-white/60 text-xs">({formatCurrency(invItem.msrp_cents)})</span>
                           )}
                         </div>
-                        <span className="text-white/60">Qty: {claim.quantity_requested}</span>
                       </div>
                       <div className="flex items-center gap-3 ml-4">
                         {claim.is_paid ? (
-                          <div className="flex items-center gap-2 text-emerald-300">
-                            <DollarSign size={14} />
-                            <span className="font-semibold">{formatCurrency(claim.payment_amount_cents)}</span>
-                          </div>
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                            <DollarSign size={12} />
+                            {formatCurrency(claim.payment_amount_cents)}
+                          </span>
                         ) : (
-                          <span className="text-amber-300">Unpaid</span>
+                          <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300">Unpaid</span>
                         )}
                         <button
                           onClick={(e) => {
@@ -1488,6 +1789,208 @@ const PreordersPage = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Payment Summary Bar */}
+      {selectedClaimsForPayment.size > 0 && !showPaymentModal && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2 transform">
+          <div className="rounded-full border border-accent/30 bg-gradient-to-r from-accent to-indigo-500 px-6 py-4 shadow-2xl">
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3">
+                <CreditCard size={20} className="text-[#061012]" />
+                <div className="text-[#061012]">
+                  <p className="text-xs font-medium opacity-80">Selected for Payment</p>
+                  <p className="text-lg font-bold">
+                    {selectedClaimsForPayment.size} {selectedClaimsForPayment.size === 1 ? 'item' : 'items'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="h-8 w-px bg-[#061012]/20"></div>
+
+              <div className="text-[#061012]">
+                <p className="text-xs font-medium opacity-80">Total Amount</p>
+                <p className="text-lg font-bold">
+                  {formatCurrency(
+                    Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                      const claim = preorderClaims.find(c => c.id === claimId);
+                      if (!claim) return sum;
+                      const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      return sum + (invItem?.msrp_cents || 0);
+                    }, 0)
+                  )}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowPaymentModal(true)}
+                className="ml-3 rounded-full bg-[#061012] px-6 py-2 font-semibold text-accent hover:bg-[#0a1a1f] transition-colors"
+              >
+                Process Payment
+              </button>
+
+              <button
+                onClick={() => setSelectedClaimsForPayment(new Set())}
+                className="ml-1 rounded-full p-2 text-[#061012] hover:bg-[#061012]/10 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal for Multiple Items */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+            <h3 className="text-xl font-semibold text-white">Process Payment</h3>
+            <p className="mt-1 text-sm text-white/60">Record payment for selected preorder items</p>
+
+            {/* Selected Items Summary */}
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-white">Selected Items:</p>
+              <div className="max-h-60 space-y-2 overflow-y-auto rounded-lg border border-white/10 bg-white/5 p-3">
+                {Array.from(selectedClaimsForPayment).map(claimId => {
+                  const claim = preorderClaims.find(c => c.id === claimId);
+                  if (!claim) return null;
+                  const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                  const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                  const customer = customers.find(c => c.id === claim.customer_id);
+
+                  return (
+                    <div key={claimId} className="flex items-center justify-between rounded-lg bg-white/5 p-3">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-white">{invItem?.name || `Item #${claim.preorder_item_id}`}</p>
+                        <p className="text-xs text-white/60">{customer?.name}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-white">{formatCurrency(invItem?.msrp_cents || 0)}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newSelection = new Set(selectedClaimsForPayment);
+                            newSelection.delete(claimId);
+                            setSelectedClaimsForPayment(newSelection);
+                          }}
+                          className="text-white/40 hover:text-white"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Total */}
+              <div className="flex items-center justify-between rounded-lg border border-accent/20 bg-accent/10 p-4">
+                <span className="text-base font-semibold text-white">Total Amount:</span>
+                <span className="text-xl font-bold text-accent">
+                  {formatCurrency(
+                    Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                      const claim = preorderClaims.find(c => c.id === claimId);
+                      if (!claim) return sum;
+                      const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      return sum + (invItem?.msrp_cents || 0);
+                    }, 0)
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Payment Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const paymentMethod = formData.get('payment_method') as string;
+                const paymentNotes = formData.get('payment_notes') as string;
+
+                try {
+                  // Process each payment
+                  await Promise.all(
+                    Array.from(selectedClaimsForPayment).map(claimId => {
+                      const claim = preorderClaims.find(c => c.id === claimId);
+                      if (!claim) return Promise.resolve();
+                      
+                      const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      const amount = invItem?.msrp_cents || 0;
+
+                      return recordPaymentMutation.mutateAsync({
+                        claimId: claimId,
+                        payment: {
+                          is_paid: true,
+                          payment_amount_cents: amount,
+                          payment_method: paymentMethod,
+                          payment_notes: paymentNotes || undefined,
+                        },
+                      });
+                    })
+                  );
+
+                  // Clear selection and close modal
+                  setSelectedClaimsForPayment(new Set());
+                  setShowPaymentModal(false);
+                } catch (error) {
+                  console.error('Error processing payments:', error);
+                  alert('Some payments failed to process. Please check and try again.');
+                }
+              }}
+              className="mt-4 space-y-4"
+            >
+              <div>
+                <label className="block text-sm text-white/60">Payment Method</label>
+                <select
+                  name="payment_method"
+                  required
+                  defaultValue="cash"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
+                >
+                  <option value="cash" className="bg-gray-900 text-white">Cash</option>
+                  <option value="credit_card" className="bg-gray-900 text-white">Credit Card</option>
+                  <option value="debit_card" className="bg-gray-900 text-white">Debit Card</option>
+                  <option value="store_credit" className="bg-gray-900 text-white">Store Credit</option>
+                  <option value="check" className="bg-gray-900 text-white">Check</option>
+                  <option value="other" className="bg-gray-900 text-white">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-white/60">Payment Notes (Optional)</label>
+                <textarea
+                  name="payment_notes"
+                  rows={2}
+                  placeholder="Optional notes about this payment..."
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setSelectedClaimsForPayment(new Set());
+                  }}
+                  className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={recordPaymentMutation.isPending || selectedClaimsForPayment.size === 0}
+                  className="flex-1 rounded-lg bg-accent px-4 py-2 font-semibold text-[#061012] hover:bg-accent/90 disabled:opacity-50"
+                >
+                  {recordPaymentMutation.isPending ? 'Processing...' : `Process Payment`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

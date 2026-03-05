@@ -44,6 +44,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   const [payments, setPayments] = useState<Array<{ method: PaymentMethod; amount: number }>>([]);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>("");
 
   // Find the Walk-in Customer (ID: 1) or use the first customer
   const defaultCustomer = customers.find(c => c.name === "Walk-in Customer") || customers[0];
@@ -434,20 +435,75 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                       New Customer
                     </button>
                   </div>
-                  <select
-                    value={selectedCustomerId || ""}
-                    onChange={(e) => setSelectedCustomerId(Number(e.target.value))}
-                    className="rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white focus:border-accent focus:outline-none"
-                    required
-                  >
-                    <option value="">Select a customer</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                        {customer.email && ` (${customer.email})`}
-                      </option>
-                    ))}
-                  </select>
+                  
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+                    <input
+                      type="text"
+                      value={customerSearchQuery}
+                      onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                      placeholder="Search customers by name or email..."
+                      className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-12 pr-10 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
+                    />
+                    {customerSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomerSearchQuery("")}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Customer List */}
+                  <div className="max-h-60 space-y-1 overflow-y-auto rounded-2xl border border-white/10 bg-[#080b12] p-2">
+                    {(() => {
+                      const filteredCustomers = customers.filter(customer => {
+                        const query = customerSearchQuery.toLowerCase();
+                        return (
+                          customer.name.toLowerCase().includes(query) ||
+                          (customer.email && customer.email.toLowerCase().includes(query))
+                        );
+                      });
+
+                      if (filteredCustomers.length === 0) {
+                        return (
+                          <p className="py-4 text-center text-sm text-white/40">
+                            {customerSearchQuery ? 'No customers found' : 'No customers available'}
+                          </p>
+                        );
+                      }
+
+                      return filteredCustomers.map(customer => (
+                        <button
+                          key={customer.id}
+                          type="button"
+                          onClick={() => setSelectedCustomerId(customer.id)}
+                          className={`w-full rounded-xl px-4 py-3 text-left transition-all ${
+                            selectedCustomerId === customer.id
+                              ? 'bg-accent/20 border border-accent/50 text-white'
+                              : 'bg-white/5 border border-transparent text-white/80 hover:bg-white/10'
+                          }`}
+                        >
+                          <p className="font-medium">{customer.name}</p>
+                          {customer.email && (
+                            <p className="text-xs text-white/60">{customer.email}</p>
+                          )}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                  
+                  {!selectedCustomerId && (
+                    <p className="text-xs text-white/40">Please select a customer to continue</p>
+                  )}
+                  {selectedCustomerId && (
+                    <p className="text-xs text-emerald-300">
+                      ✓ Customer selected: {customers.find(c => c.id === selectedCustomerId)?.name}
+                    </p>
+                  )}
                 </label>
               </div>
 
@@ -687,15 +743,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                         else if (value === "employee") setOrderDiscountPercent(10);
                         else setOrderDiscountPercent(0);
                       }}
-                      className="flex-1 rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white focus:border-accent focus:outline-none"
+                      className="flex-1 rounded-2xl border border-white/10 bg-[#080b12] px-4 py-3 text-white focus:border-accent focus:outline-none [&>option]:bg-gray-900 [&>option]:text-white"
                     >
-                      <option value="">No Discount</option>
-                      <option value="student">Student (10%)</option>
-                      <option value="first_responder">First Responder (10%)</option>
-                      <option value="military">Military (10%)</option>
-                      <option value="senior">Senior (10%)</option>
-                      <option value="employee">Employee (10%)</option>
-                      <option value="custom">Custom</option>
+                      <option value="" className="bg-gray-900 text-white">No Discount</option>
+                      <option value="student" className="bg-gray-900 text-white">Student (10%)</option>
+                      <option value="first_responder" className="bg-gray-900 text-white">First Responder (10%)</option>
+                      <option value="military" className="bg-gray-900 text-white">Military (10%)</option>
+                      <option value="senior" className="bg-gray-900 text-white">Senior (10%)</option>
+                      <option value="employee" className="bg-gray-900 text-white">Employee (10%)</option>
+                      <option value="custom" className="bg-gray-900 text-white">Custom</option>
                     </select>
                     {orderDiscountType && (
                       <input
@@ -959,6 +1015,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
           onClose={() => setShowNewCustomerModal(false)}
           onCustomerCreated={(customerId) => {
             setSelectedCustomerId(customerId);
+            setCustomerSearchQuery("");
             setShowNewCustomerModal(false);
           }}
         />
