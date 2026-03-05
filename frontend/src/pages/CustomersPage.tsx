@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, UserPlus } from "lucide-react";
+import { Loader2, UserPlus, Search } from "lucide-react";
 import { useCustomers } from "../hooks/useCustomers";
 import NewCustomerModal from "../components/NewCustomerModal";
 import CustomerTransactionsModal from "../components/CustomerTransactionsModal";
@@ -8,6 +8,17 @@ const CustomersPage = () => {
   const { data: customers = [], isLoading, isError } = useCustomers();
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter customers based on search query
+  const filteredCustomers = customers.filter((customer) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      customer.name.toLowerCase().includes(query) ||
+      customer.email?.toLowerCase().includes(query) ||
+      customer.phone?.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <div className="space-y-8">
@@ -23,6 +34,18 @@ const CustomersPage = () => {
         >
           <UserPlus size={16} /> Add customer
         </button>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
+        <input
+          type="text"
+          placeholder="Search customers by name, email, or phone..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-12 pr-4 text-white placeholder-white/40 outline-none focus:border-accent focus:bg-white/10 transition"
+        />
       </div>
 
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
@@ -42,9 +65,14 @@ const CustomersPage = () => {
             No customers yet. Add one to get started.
           </div>
         )}
-        {!isLoading && !isError && customers.length > 0 && (
+        {!isLoading && !isError && customers.length > 0 && filteredCustomers.length === 0 && (
+          <div className="py-8 text-center text-sm text-white/60">
+            No customers found matching "{searchQuery}"
+          </div>
+        )}
+        {!isLoading && !isError && filteredCustomers.length > 0 && (
           <div className="space-y-3">
-            {customers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
+            {filteredCustomers.sort((a, b) => a.name.localeCompare(b.name)).map((customer) => (
               <div
                 key={customer.id}
                 className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white"
