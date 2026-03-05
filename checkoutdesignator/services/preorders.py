@@ -7,6 +7,9 @@ from sqlmodel import Session, select
 from ..exceptions import NotFoundError, ValidationError
 from ..models import (
     AdjustmentReason,
+    CashRegisterSession,
+    CashRegisterTransaction,
+    CashRegisterTransactionType,
     InventoryAdjustment,
     InventoryItem,
     PaymentMethod,
@@ -326,7 +329,7 @@ def fulfill_preorder_claim(session: Session, claim_id: int, payload: PreorderCla
     return claim
 
 
-def record_preorder_payment(session: Session, claim_id: int, payload: PreorderClaimPaymentUpdate) -> PreorderClaim:
+def record_preorder_payment(session: Session, claim_id: int, payload: PreorderClaimPaymentUpdate, user_id: int = 1) -> PreorderClaim:
     """Record payment for a preorder claim. Payment data is stored in perpetuity."""
     claim = session.get(PreorderClaim, claim_id)
     if not claim:
@@ -349,6 +352,34 @@ def record_preorder_payment(session: Session, claim_id: int, payload: PreorderCl
     
     session.add(claim)
     session.flush()
+    
+    # If payment is cash and is_paid is True, record it in the cash register
+    if payload.is_paid and payload.payment_method == PaymentMethod.CASH and payload.payment_amount_cents > 0:
+        # Get the active cash register session
+        statement = select(CashRegisterSession).where(
+            CashRegisterSession.is_active == True
+        ).order_by(CashRegisterSession.opened_at.desc())
+        active_session = session.exec(statement).first()
+        
+        if active_session:
+            # Create a transaction record for the preorder sale
+            transaction = CashRegisterTransaction(
+                session_id=active_session.id or 0,
+                transaction_type=CashRegisterTransactionType.SALE,
+                amount_cents=payload.payment_amount_cents,
+                description=f"Preorder claim #{claim_id} payment",
+                reference_type="preorder",
+                reference_id=claim_id,
+                created_by_user_id=user_id,
+                notes=payload.payment_notes,
+            )
+            session.add(transaction)
+            
+            # Update the session balance
+            active_session.current_balance_cents += payload.payment_amount_cents
+            session.add(active_session)
+            session.flush()
+    
     return claim
 
 

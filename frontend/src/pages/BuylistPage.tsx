@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save, Smartphone } from "lucide-react";
+import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save, Smartphone, Trash2 } from "lucide-react";
 import { useCustomers } from "../hooks/useCustomers";
 import { useBuylistTransactions } from "../hooks/useBuylist";
-import { createBuylistTransaction, updateBuylistTransaction, CreateBuylistTransactionPayload, UpdateBuylistTransactionPayload } from "../api/buylist";
+import { createBuylistTransaction, updateBuylistTransaction, deleteBuylistTransaction, CreateBuylistTransactionPayload, UpdateBuylistTransactionPayload } from "../api/buylist";
 import { useRecordCashTransaction } from "../hooks/useCashRegister";
 
 const BuylistPage = () => {
@@ -52,6 +52,19 @@ const BuylistPage = () => {
     },
     onError: (err: any) => {
       const message = err?.response?.data?.detail || err?.message || "Failed to update transaction";
+      setError(message);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteBuylistTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["buylist"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
+      setError(null);
+    },
+    onError: (err: any) => {
+      const message = err?.response?.data?.detail || err?.message || "Failed to delete transaction";
       setError(message);
     },
   });
@@ -128,6 +141,12 @@ const BuylistPage = () => {
   const handleCancelEdit = () => {
     setEditingId(null);
     setError(null);
+  };
+
+  const handleDelete = (txn: any) => {
+    if (window.confirm(`Are you sure you want to delete this transaction for ${getCustomerName(txn.customer_id)} ($${(txn.amount_cents / 100).toFixed(2)})?${txn.payment_method === 'cash' ? ' This will return the cash to the register.' : ''}`)) {
+      deleteMutation.mutate(txn.id);
+    }
   };
 
   const getCustomerName = (customerId: number) => {
@@ -419,13 +438,23 @@ const BuylistPage = () => {
                         <p className="text-xl font-semibold text-white">${(txn.amount_cents / 100).toFixed(2)}</p>
                         <p className="text-xs text-white/40">Transaction #{txn.id}</p>
                       </div>
-                      <button
-                        onClick={() => handleEdit(txn)}
-                        className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:border-accent hover:text-accent"
-                        title="Edit transaction"
-                      >
-                        <Edit2 size={16} />
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(txn)}
+                          className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:border-accent hover:text-accent"
+                          title="Edit transaction"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(txn)}
+                          disabled={deleteMutation.isPending}
+                          className="rounded-lg border border-white/10 p-2 text-white/60 transition hover:border-rose-500 hover:text-rose-400 disabled:opacity-50"
+                          title="Delete transaction"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

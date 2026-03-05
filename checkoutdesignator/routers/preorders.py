@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from ..api import raise_http_error
+from ..auth import get_current_user, User
 from ..dependencies import db_session
 from ..exceptions import CardPosError
 from ..models import PreorderClaim, PreorderItem, PreorderOrder
@@ -133,11 +134,12 @@ def update_preorder_claim(
 def record_preorder_payment(
     claim_id: int,
     payload: PreorderClaimPaymentUpdate,
+    current_user: User = Depends(get_current_user),
     session: Session = Depends(db_session),
 ) -> PreorderClaim:
     """Record payment for a preorder claim. Payment data is stored permanently."""
     try:
-        claim = preorder_service.record_preorder_payment(session, claim_id, payload)
+        claim = preorder_service.record_preorder_payment(session, claim_id, payload, current_user.id or 1)
     except CardPosError as exc:
         raise_http_error(exc)
     return claim

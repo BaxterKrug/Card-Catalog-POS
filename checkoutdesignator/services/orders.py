@@ -5,6 +5,9 @@ from sqlmodel import Session, select
 from ..exceptions import NotFoundError, ValidationError
 from ..models import (
     AdjustmentReason,
+    CashRegisterSession,
+    CashRegisterTransaction,
+    CashRegisterTransactionType,
     InventoryAdjustment,
     InventoryItem,
     Order,
@@ -204,7 +207,7 @@ def recalculate_order(session: Session, order_id: int) -> Order:
     return order
 
 
-def add_order_payment(session: Session, order_id: int, payload: OrderPaymentCreate) -> OrderPayment:
+def add_order_payment(session: Session, order_id: int, payload: OrderPaymentCreate, user_id: int = 1) -> OrderPayment:
     """Add a payment to an order."""
     order = get_order_or_raise(session, order_id)
     if order.id is None:
@@ -218,6 +221,33 @@ def add_order_payment(session: Session, order_id: int, payload: OrderPaymentCrea
     )
     session.add(payment)
     session.flush()
+    
+    # If payment is cash, record it in the cash register
+    if payload.payment_method == PaymentMethod.CASH:
+        # Get the active cash register session
+        statement = select(CashRegisterSession).where(
+            CashRegisterSession.is_active == True
+        ).order_by(CashRegisterSession.opened_at.desc())
+        active_session = session.exec(statement).first()
+        
+        if active_session:
+            # Create a transaction record for the sale
+            transaction = CashRegisterTransaction(
+                session_id=active_session.id or 0,
+                transaction_type=CashRegisterTransactionType.SALE,
+                amount_cents=payload.amount_cents,
+                description=f"Order #{order_id} payment",
+                reference_type="order",
+                reference_id=order_id,
+                created_by_user_id=user_id,
+                notes=payload.notes,
+            )
+            session.add(transaction)
+            
+            # Update the session balance
+            active_session.current_balance_cents += payload.amount_cents
+            session.add(active_session)
+            session.flush()
     
     # Recalculate totals
     items = _fetch_order_items(session, order_id)

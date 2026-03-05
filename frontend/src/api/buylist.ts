@@ -42,3 +42,7 @@ export async function updateBuylistTransaction(
   const response = await apiClient.patch<BuylistTransaction>(`/buylist/${id}`, payload);
   return response.data;
 }
+
+export async function deleteBuylistTransaction(id: number): Promise<void> {
+  await apiClient.delete(`/buylist/${id}`);
+}

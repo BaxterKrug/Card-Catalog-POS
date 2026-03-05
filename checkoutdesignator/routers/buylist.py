@@ -1,8 +1,16 @@
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, desc
 
+from ..auth import get_current_user, User
 from ..database import get_session as db_session
-from ..models import BuylistTransaction, PaymentMethod, utcnow
+from ..models import (
+    BuylistTransaction,
+    CashRegisterSession,
+    CashRegisterTransaction,
+    CashRegisterTransactionType,
+    PaymentMethod,
+    utcnow,
+)
 
 router = APIRouter(prefix="/buylist", tags=["buylist"])
 
@@ -54,7 +62,9 @@ def list_transactions(session: Session = Depends(db_session)) -> list[BuylistTra
 
 @router.post("/", response_model=BuylistTransactionRead, status_code=201)
 def create_transaction(
-    payload: BuylistTransactionCreate, session: Session = Depends(db_session)
+    payload: BuylistTransactionCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(db_session)
 ) -> BuylistTransactionRead:
     """Create a new buylist transaction"""
     transaction = BuylistTransaction(
@@ -66,6 +76,32 @@ def create_transaction(
     session.add(transaction)
     session.commit()
     session.refresh(transaction)
+
+    # If payment is cash, record it in the cash register (negative for money going out)
+    if payload.payment_method == PaymentMethod.CASH:
+        statement = select(CashRegisterSession).where(
+            CashRegisterSession.is_active == True
+        ).order_by(desc(CashRegisterSession.opened_at))
+        active_session = session.exec(statement).first()
+        
+        if active_session:
+            # Create a transaction record for the buylist payout (negative amount)
+            cash_txn = CashRegisterTransaction(
+                session_id=active_session.id or 0,
+                transaction_type=CashRegisterTransactionType.BUYLIST_PAYOUT,
+                amount_cents=-payload.amount_cents,  # Negative because money is going out
+                description=f"Buylist payout to customer {payload.customer_id}",
+                reference_type="buylist",
+                reference_id=transaction.id or 0,
+                created_by_user_id=current_user.id or 1,
+                notes=payload.notes,
+            )
+            session.add(cash_txn)
+            
+            # Update the session balance (subtract the payout)
+            active_session.current_balance_cents -= payload.amount_cents
+            session.add(active_session)
+            session.commit()
 
     return BuylistTransactionRead(
         id=transaction.id or 0,
@@ -112,3 +148,60 @@ def update_transaction(
         notes=transaction.notes,
         created_at=transaction.created_at.isoformat(),
     )
+
+
+@router.delete("/{transaction_id}", status_code=204)
+def delete_transaction(
+    transaction_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(db_session),
+) -> None:
+    """Delete a buylist transaction and reverse cash register entry if applicable"""
+    from fastapi import HTTPException
+    
+    transaction = session.get(BuylistTransaction, transaction_id)
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # If payment was cash, reverse the cash register transaction
+    if transaction.payment_method == PaymentMethod.CASH:
+        # Find the cash register transaction linked to this buylist
+        statement = select(CashRegisterTransaction).where(
+            CashRegisterTransaction.reference_type == "buylist",
+            CashRegisterTransaction.reference_id == transaction_id
+        )
+        cash_txn = session.exec(statement).first()
+        
+        if cash_txn:
+            # Get the session this transaction belonged to
+            cash_session = session.get(CashRegisterSession, cash_txn.session_id)
+            if cash_session:
+                # Reverse the transaction: add money back (since original was negative)
+                cash_session.current_balance_cents += transaction.amount_cents
+                session.add(cash_session)
+            
+            # Create a reversal transaction for audit trail
+            statement = select(CashRegisterSession).where(
+                CashRegisterSession.is_active == True
+            ).order_by(desc(CashRegisterSession.opened_at))
+            active_session = session.exec(statement).first()
+            
+            if active_session:
+                reversal_txn = CashRegisterTransaction(
+                    session_id=active_session.id or 0,
+                    transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+                    amount_cents=transaction.amount_cents,  # Positive to add money back
+                    description=f"Reversal of buylist transaction #{transaction_id}",
+                    reference_type="buylist_reversal",
+                    reference_id=transaction_id,
+                    created_by_user_id=current_user.id or 1,
+                    notes=f"Deleted buylist transaction",
+                )
+                session.add(reversal_txn)
+            
+            # Delete the original cash register transaction
+            session.delete(cash_txn)
+    
+    # Delete the buylist transaction
+    session.delete(transaction)
+    session.commit()
