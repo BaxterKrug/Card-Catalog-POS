@@ -59,6 +59,8 @@ class PaymentMethod(str, Enum):
     DEBIT_CARD = "debit_card"
     STORE_CREDIT = "store_credit"
     CHECK = "check"
+    CASHAPP = "cashapp"
+    VENMO = "venmo"
     OTHER = "other"
 
 
@@ -296,3 +298,43 @@ class ChecklistCompletion(SQLModel, table=True):
 
     template: Optional[ChecklistTemplate] = Relationship(back_populates="completions")
     user: Optional["User"] = Relationship(back_populates="checklist_completions")
+
+
+class CashRegisterTransactionType(str, Enum):
+    STARTING_CASH = "starting_cash"
+    SALE = "sale"  # Money coming in from sales
+    BUYLIST_PAYOUT = "buylist_payout"  # Money going out for buylist
+    DEPOSIT = "deposit"  # Money removed to bank
+    ADJUSTMENT = "adjustment"  # Manual adjustment
+
+
+class CashRegisterSession(SQLModel, table=True):
+    """Track cash register sessions (typically one per day)"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    opened_by_user_id: int = Field(foreign_key="user.id", index=True)
+    opening_balance_cents: int = Field(ge=0)  # Starting cash
+    current_balance_cents: int = Field(ge=0)  # Current cash in register
+    opened_at: datetime = Field(default_factory=utcnow, nullable=False)
+    closed_at: Optional[datetime] = None
+    is_active: bool = Field(default=True, index=True)
+    notes: Optional[str] = None
+
+    transactions: List["CashRegisterTransaction"] = Relationship(back_populates="session")
+    opened_by: Optional["User"] = Relationship()
+
+
+class CashRegisterTransaction(SQLModel, table=True):
+    """Track individual cash register transactions"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(foreign_key="cashregistersession.id", index=True)
+    transaction_type: CashRegisterTransactionType = Field(index=True)
+    amount_cents: int  # Positive for money in, negative for money out
+    description: str
+    reference_type: Optional[str] = None  # e.g., "order", "buylist", "preorder"
+    reference_id: Optional[int] = None
+    created_by_user_id: int = Field(foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=utcnow, nullable=False)
+    notes: Optional[str] = None
+
+    session: Optional[CashRegisterSession] = Relationship(back_populates="transactions")
+    created_by: Optional["User"] = Relationship()

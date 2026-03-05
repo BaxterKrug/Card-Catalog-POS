@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save } from "lucide-react";
+import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save, Smartphone } from "lucide-react";
 import { useCustomers } from "../hooks/useCustomers";
 import { useBuylistTransactions } from "../hooks/useBuylist";
 import { createBuylistTransaction, updateBuylistTransaction, CreateBuylistTransactionPayload, UpdateBuylistTransactionPayload } from "../api/buylist";
+import { useRecordCashTransaction } from "../hooks/useCashRegister";
 
 const BuylistPage = () => {
   const queryClient = useQueryClient();
@@ -13,15 +14,17 @@ const BuylistPage = () => {
   const [showNewTransaction, setShowNewTransaction] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "store_credit">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "store_credit" | "cashapp" | "venmo">("cash");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editCustomerId, setEditCustomerId] = useState<number | null>(null);
   const [editAmount, setEditAmount] = useState("");
-  const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "store_credit">("cash");
+  const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "store_credit" | "cashapp" | "venmo">("cash");
   const [editNotes, setEditNotes] = useState("");
+
+  const recordCashTransactionMutation = useRecordCashTransaction();
 
   const createMutation = useMutation({
     mutationFn: createBuylistTransaction,
@@ -73,6 +76,20 @@ const BuylistPage = () => {
       amount_cents: Math.round(amountValue * 100),
       payment_method: paymentMethod,
       notes: notes || undefined,
+    }, {
+      onSuccess: (transaction) => {
+        // If payment was in cash, record it in the cash register
+        if (paymentMethod === "cash") {
+          const customerName = getCustomerName(selectedCustomerId);
+          recordCashTransactionMutation.mutate({
+            type: "buylist_payout",
+            amount_cents: -Math.round(amountValue * 100), // Negative because cash is leaving
+            description: `Buylist payout to ${customerName}`,
+            reference_type: "buylist",
+            reference_id: transaction.id,
+          });
+        }
+      },
     });
   };
 
@@ -116,6 +133,36 @@ const BuylistPage = () => {
   const getCustomerName = (customerId: number) => {
     const customer = customers.find((c) => c.id === customerId);
     return customer?.name || `Customer #${customerId}`;
+  };
+
+  const getPaymentMethodDisplay = (method: string) => {
+    switch (method) {
+      case "cash":
+        return "Cash";
+      case "store_credit":
+        return "Store Credit";
+      case "cashapp":
+        return "CashApp";
+      case "venmo":
+        return "Venmo";
+      default:
+        return method;
+    }
+  };
+
+  const getPaymentMethodColor = (method: string) => {
+    switch (method) {
+      case "cash":
+        return "bg-green-500/20 text-green-300";
+      case "store_credit":
+        return "bg-purple-500/20 text-purple-300";
+      case "cashapp":
+        return "bg-blue-500/20 text-blue-300";
+      case "venmo":
+        return "bg-cyan-500/20 text-cyan-300";
+      default:
+        return "bg-gray-500/20 text-gray-300";
+    }
   };
 
   const filteredTransactions = transactions.filter((txn) => {
@@ -283,6 +330,28 @@ const BuylistPage = () => {
                         >
                           Store Credit
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditPaymentMethod("cashapp")}
+                          className={`rounded-lg border px-3 py-2 text-sm transition ${
+                            editPaymentMethod === "cashapp"
+                              ? "border-accent bg-accent/20 text-accent"
+                              : "border-white/10 bg-white/5 text-white/80"
+                          }`}
+                        >
+                          CashApp
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditPaymentMethod("venmo")}
+                          className={`rounded-lg border px-3 py-2 text-sm transition ${
+                            editPaymentMethod === "venmo"
+                              ? "border-accent bg-accent/20 text-accent"
+                              : "border-white/10 bg-white/5 text-white/80"
+                          }`}
+                        >
+                          Venmo
+                        </button>
                       </div>
                     </div>
                     <div>
@@ -333,13 +402,9 @@ const BuylistPage = () => {
                         <User size={16} className="text-white/40" />
                         <p className="font-medium text-white">{getCustomerName(txn.customer_id)}</p>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            txn.payment_method === "cash"
-                              ? "bg-green-500/20 text-green-300"
-                              : "bg-purple-500/20 text-purple-300"
-                          }`}
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${getPaymentMethodColor(txn.payment_method)}`}
                         >
-                          {txn.payment_method === "cash" ? "Cash" : "Store Credit"}
+                          {getPaymentMethodDisplay(txn.payment_method)}
                         </span>
                       </div>
                       {txn.notes && <p className="mt-1 text-sm text-white/50">{txn.notes}</p>}
@@ -455,6 +520,30 @@ const BuylistPage = () => {
                   >
                     <CreditCard size={16} className="mx-auto mb-1" />
                     Store Credit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("cashapp")}
+                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                      paymentMethod === "cashapp"
+                        ? "border-accent bg-accent/20 text-accent"
+                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                    }`}
+                  >
+                    <Smartphone size={16} className="mx-auto mb-1" />
+                    CashApp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("venmo")}
+                    className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                      paymentMethod === "venmo"
+                        ? "border-accent bg-accent/20 text-accent"
+                        : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                    }`}
+                  >
+                    <Smartphone size={16} className="mx-auto mb-1" />
+                    Venmo
                   </button>
                 </div>
               </div>

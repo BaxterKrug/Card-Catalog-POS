@@ -4,7 +4,7 @@ export interface BuylistTransaction {
   id: number;
   customer_id: number;
   amount_cents: number;
-  payment_method: "cash" | "store_credit";
+  payment_method: "cash" | "store_credit" | "cashapp" | "venmo";
   notes: string | null;
   created_at: string;
 }
@@ -12,14 +12,14 @@ export interface BuylistTransaction {
 export interface CreateBuylistTransactionPayload {
   customer_id: number;
   amount_cents: number;
-  payment_method: "cash" | "store_credit";
+  payment_method: "cash" | "store_credit" | "cashapp" | "venmo";
   notes?: string;
 }
 
 export interface UpdateBuylistTransactionPayload {
   customer_id?: number;
   amount_cents?: number;
-  payment_method?: "cash" | "store_credit";
+  payment_method?: "cash" | "store_credit" | "cashapp" | "venmo";
   notes?: string;
 }
 

@@ -1,9 +1,10 @@
 import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
 import { useAuth } from "../contexts/AuthContext";
+import { useRecordCashTransaction } from "../hooks/useCashRegister";
 import type { PreorderItem, PreorderClaim } from "../api/preorders";
 
 const PreordersPage = () => {
@@ -22,6 +23,10 @@ const PreordersPage = () => {
   const [selectedClaimsForPayment, setSelectedClaimsForPayment] = useState<Set<number>>(new Set());
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [itemsPaidDuringCreation, setItemsPaidDuringCreation] = useState<Set<number>>(new Set());
+  const [cashTendered, setCashTendered] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<string>('cash');
+  const [editClaimCashTendered, setEditClaimCashTendered] = useState<string>('');
+  const [editClaimPaymentMethod, setEditClaimPaymentMethod] = useState<string>('cash');
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
@@ -40,6 +45,15 @@ const PreordersPage = () => {
   const updateItemMutation = useUpdatePreorderItem();
   const recordPaymentMutation = useRecordPreorderPayment();
   const cancelClaimMutation = useCancelPreorderClaim();
+  const recordCashTransactionMutation = useRecordCashTransaction();
+
+  // Initialize edit claim form state when modal opens
+  useEffect(() => {
+    if (editingClaim) {
+      setEditClaimPaymentMethod(editingClaim.payment_method || 'cash');
+      setEditClaimCashTendered('');
+    }
+  }, [editingClaim]);
 
   const isLoading = itemsLoading || claimsLoading;
   const isError = itemsError || claimsError;
@@ -974,6 +988,15 @@ const PreordersPage = () => {
                                 type="checkbox"
                                 name={`paid_${item.id}`}
                                 id={`paid_${item.id}`}
+                                onChange={(e) => {
+                                  // Also check the product checkbox when payment is checked
+                                  if (e.target.checked) {
+                                    const productCheckbox = document.querySelector(`input[name="product_${item.id}"]`) as HTMLInputElement;
+                                    if (productCheckbox && !productCheckbox.checked) {
+                                      productCheckbox.checked = true;
+                                    }
+                                  }
+                                }}
                                 className="h-4 w-4 flex-shrink-0 rounded border-accent/30 text-accent focus:ring-accent"
                               />
                               <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
@@ -1187,7 +1210,11 @@ const PreordersPage = () => {
                       payment_notes: formData.get('payment_notes') as string || undefined,
                     }
                   }, {
-                    onSuccess: () => setEditingClaim(null)
+                    onSuccess: () => {
+                      setEditingClaim(null);
+                      setEditClaimCashTendered('');
+                      setEditClaimPaymentMethod('cash');
+                    }
                   });
                 } else {
                   // Just update paid status to false
@@ -1199,7 +1226,11 @@ const PreordersPage = () => {
                       payment_method: 'none',
                     }
                   }, {
-                    onSuccess: () => setEditingClaim(null)
+                    onSuccess: () => {
+                      setEditingClaim(null);
+                      setEditClaimCashTendered('');
+                      setEditClaimPaymentMethod('cash');
+                    }
                   });
                 }
               }}
@@ -1266,7 +1297,11 @@ const PreordersPage = () => {
                   <label className="block text-sm text-white/60">Payment Method</label>
                   <select
                     name="payment_method"
-                    defaultValue={editingClaim.payment_method || 'cash'}
+                    value={editClaimPaymentMethod}
+                    onChange={(e) => {
+                      setEditClaimPaymentMethod(e.target.value);
+                      setEditClaimCashTendered('');
+                    }}
                     className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
                   >
                     <option value="cash" className="bg-gray-900 text-white">Cash</option>
@@ -1276,6 +1311,52 @@ const PreordersPage = () => {
                     <option value="other" className="bg-gray-900 text-white">Other</option>
                   </select>
                 </div>
+
+                {/* Cash Tendered - Only show for cash payments */}
+                {editClaimPaymentMethod === 'cash' && (
+                  <>
+                    <div>
+                      <label className="block text-sm text-white/60">Cash Tendered</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editClaimCashTendered}
+                          onChange={(e) => setEditClaimCashTendered(e.target.value)}
+                          placeholder="0.00"
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 pl-7 pr-3 py-2 text-white outline-none focus:border-white/20"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Change Calculator */}
+                    {editClaimCashTendered && parseFloat(editClaimCashTendered) > 0 && (() => {
+                      const preorderItem = preorderItems.find(pi => pi.id === editingClaim.preorder_item_id);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      const total = invItem?.msrp_cents || 0;
+                      const tendered = Math.round(parseFloat(editClaimCashTendered) * 100);
+                      const change = Math.max(0, tendered - total);
+                      
+                      return (
+                        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-white">Change Due:</span>
+                            <span className="text-2xl font-bold text-emerald-300">
+                              {formatCurrency(change)}
+                            </span>
+                          </div>
+                          {tendered < total && (
+                            <p className="mt-2 text-xs text-rose-300">
+                              Insufficient payment: {formatCurrency(total - tendered)} short
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
 
                 <div>
                   <label className="block text-sm text-white/60">Payment Notes</label>
@@ -1292,14 +1373,31 @@ const PreordersPage = () => {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setEditingClaim(null)}
+                  onClick={() => {
+                    setEditingClaim(null);
+                    setEditClaimCashTendered('');
+                    setEditClaimPaymentMethod('cash');
+                  }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={recordPaymentMutation.isPending}
+                  disabled={(() => {
+                    if (recordPaymentMutation.isPending) return true;
+                    
+                    // Validate sufficient cash for cash payments if user entered a cash tendered amount
+                    if (editClaimPaymentMethod === 'cash' && editClaimCashTendered) {
+                      const preorderItem = preorderItems.find(pi => pi.id === editingClaim.preorder_item_id);
+                      const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                      const total = invItem?.msrp_cents || 0;
+                      const tendered = Math.round(parseFloat(editClaimCashTendered) * 100);
+                      if (tendered < total) return true;
+                    }
+                    
+                    return false;
+                  })()}
                   className="flex-1 rounded-lg bg-white/10 px-4 py-2 text-white hover:bg-white/15 disabled:opacity-50"
                 >
                   {recordPaymentMutation.isPending ? 'Saving...' : 'Save Changes'}
@@ -1914,6 +2012,15 @@ const PreordersPage = () => {
                 const paymentNotes = formData.get('payment_notes') as string;
 
                 try {
+                  // Calculate total amount for cash register
+                  const totalAmount = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                    const claim = preorderClaims.find(c => c.id === claimId);
+                    if (!claim) return sum;
+                    const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                    const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                    return sum + (invItem?.msrp_cents || 0);
+                  }, 0);
+
                   // Process each payment
                   await Promise.all(
                     Array.from(selectedClaimsForPayment).map(claimId => {
@@ -1936,9 +2043,29 @@ const PreordersPage = () => {
                     })
                   );
 
+                  // If payment was in cash, record it in the cash register
+                  if (paymentMethod === 'cash' && totalAmount > 0) {
+                    const itemCount = selectedClaimsForPayment.size;
+                    const customer = customers.find(c =>  {
+                      const firstClaim = preorderClaims.find(claim => selectedClaimsForPayment.has(claim.id));
+                      return firstClaim && c.id === firstClaim.customer_id;
+                    });
+                    const customerName = customer?.name || 'Customer';
+                    
+                    recordCashTransactionMutation.mutate({
+                      type: 'sale',
+                      amount_cents: totalAmount,
+                      description: `Preorder payment from ${customerName} (${itemCount} item${itemCount > 1 ? 's' : ''})`,
+                      reference_type: 'preorder',
+                      reference_id: Array.from(selectedClaimsForPayment)[0],
+                    });
+                  }
+
                   // Clear selection and close modal
                   setSelectedClaimsForPayment(new Set());
                   setShowPaymentModal(false);
+                  setCashTendered('');
+                  setPaymentMethod('cash');
                 } catch (error) {
                   console.error('Error processing payments:', error);
                   alert('Some payments failed to process. Please check and try again.');
@@ -1951,7 +2078,11 @@ const PreordersPage = () => {
                 <select
                   name="payment_method"
                   required
-                  defaultValue="cash"
+                  value={paymentMethod}
+                  onChange={(e) => {
+                    setPaymentMethod(e.target.value);
+                    setCashTendered('');
+                  }}
                   className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
                 >
                   <option value="cash" className="bg-gray-900 text-white">Cash</option>
@@ -1962,6 +2093,68 @@ const PreordersPage = () => {
                   <option value="other" className="bg-gray-900 text-white">Other</option>
                 </select>
               </div>
+
+              {/* Cash Tendered - Only show for cash payments */}
+              {paymentMethod === 'cash' && (
+                <>
+                  <div>
+                    <label className="block text-sm text-white/60">Cash Tendered</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={cashTendered}
+                        onChange={(e) => setCashTendered(e.target.value)}
+                        placeholder="0.00"
+                        className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 pl-7 pr-3 py-2 text-white outline-none focus:border-white/20"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Change Calculator */}
+                  {cashTendered && parseFloat(cashTendered) > 0 && (
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-white">Change Due:</span>
+                        <span className="text-2xl font-bold text-emerald-300">
+                          {(() => {
+                            const total = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                              const claim = preorderClaims.find(c => c.id === claimId);
+                              if (!claim) return sum;
+                              const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                              const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                              return sum + (invItem?.msrp_cents || 0);
+                            }, 0);
+                            const tendered = Math.round(parseFloat(cashTendered) * 100);
+                            const change = Math.max(0, tendered - total);
+                            return formatCurrency(change);
+                          })()}
+                        </span>
+                      </div>
+                      {(() => {
+                        const total = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                          const claim = preorderClaims.find(c => c.id === claimId);
+                          if (!claim) return sum;
+                          const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                          const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                          return sum + (invItem?.msrp_cents || 0);
+                        }, 0);
+                        const tendered = Math.round(parseFloat(cashTendered) * 100);
+                        if (tendered < total) {
+                          return (
+                            <p className="mt-2 text-xs text-rose-300">
+                              Insufficient payment: {formatCurrency(total - tendered)} short
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  )}
+                </>
+              )}
 
               <div>
                 <label className="block text-sm text-white/60">Payment Notes (Optional)</label>
@@ -1978,6 +2171,8 @@ const PreordersPage = () => {
                   type="button"
                   onClick={() => {
                     setShowPaymentModal(false);
+                    setCashTendered('');
+                    setPaymentMethod('cash');
                     setSelectedClaimsForPayment(new Set());
                   }}
                   className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
@@ -1986,7 +2181,24 @@ const PreordersPage = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={recordPaymentMutation.isPending || selectedClaimsForPayment.size === 0}
+                  disabled={(() => {
+                    if (recordPaymentMutation.isPending || selectedClaimsForPayment.size === 0) return true;
+                    
+                    // Validate sufficient cash for cash payments
+                    if (paymentMethod === 'cash' && cashTendered) {
+                      const total = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
+                        const claim = preorderClaims.find(c => c.id === claimId);
+                        if (!claim) return sum;
+                        const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+                        const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                        return sum + (invItem?.msrp_cents || 0);
+                      }, 0);
+                      const tendered = Math.round(parseFloat(cashTendered) * 100);
+                      if (tendered < total) return true;
+                    }
+                    
+                    return false;
+                  })()}
                   className="flex-1 rounded-lg bg-accent px-4 py-2 font-semibold text-[#061012] hover:bg-accent/90 disabled:opacity-50"
                 >
                   {recordPaymentMutation.isPending ? 'Processing...' : `Process Payment`}
