@@ -357,7 +357,10 @@ const OrdersPage = () => {
               const groupKey = `${group.type}-${group.date.toISOString()}`;
               const isCollapsed = collapsedGroups.has(groupKey);
               const totalOrders = group.orders.length;
-              const totalValue = group.orders.reduce((sum, order) => sum + (order.total_cents || 0), 0);
+              const totalValue = group.orders.reduce((sum, order) => {
+                if (order.status === "refunded" || order.status === "cancelled") return sum;
+                return sum + (order.total_cents || 0);
+              }, 0);
 
               return (
                 <div key={groupKey} className="space-y-3">

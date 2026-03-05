@@ -42,6 +42,7 @@ const DashboardPage = () => {
   // Filter orders by date range
   const filteredOrders = ordersList.filter((order: any) => {
     if (!order.created_at) return false;
+    if (order.status === "refunded" || order.status === "cancelled") return false;
     const orderDate = new Date(order.created_at);
     if (fromDate && orderDate < new Date(fromDate)) return false;
     if (toDate && orderDate > new Date(toDate + "T23:59:59")) return false;
