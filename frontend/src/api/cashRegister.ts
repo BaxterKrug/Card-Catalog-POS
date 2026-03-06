@@ -86,3 +86,13 @@ export const recordCashTransaction = async (
   });
   return response.data;
 };
+
+export interface SessionHistoryParams {
+  start_date?: string;
+  end_date?: string;
+}
+
+export const getSessionsHistory = async (params?: SessionHistoryParams): Promise<CashRegisterSession[]> => {
+  const response = await apiClient.get<CashRegisterSession[]>("/cash-register/sessions/history", { params });
+  return response.data;
+};

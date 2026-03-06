@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Loader2, UserPlus, Search } from "lucide-react";
+import { Loader2, UserPlus, Search, Trash2 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCustomers } from "../hooks/useCustomers";
+import { deleteCustomer } from "../api/customers";
 import NewCustomerModal from "../components/NewCustomerModal";
 import CustomerTransactionsModal from "../components/CustomerTransactionsModal";
 
@@ -9,6 +11,16 @@ const CustomersPage = () => {
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [customerToDelete, setCustomerToDelete] = useState<{ id: number; name: string } | null>(null);
+
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: deleteCustomer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setCustomerToDelete(null);
+    },
+  });
 
   // Filter customers based on search query
   const filteredCustomers = customers.filter((customer) => {
@@ -84,12 +96,21 @@ const CustomersPage = () => {
                     {customer.phone && <span>{customer.phone}</span>}
                   </div>
                 </div>
-                <button 
-                  onClick={() => setSelectedCustomer({ id: customer.id, name: customer.name })}
-                  className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 hover:border-accent hover:text-accent"
-                >
-                  View transactions
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setSelectedCustomer({ id: customer.id, name: customer.name })}
+                    className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 hover:border-accent hover:text-accent"
+                  >
+                    View transactions
+                  </button>
+                  <button
+                    onClick={() => setCustomerToDelete({ id: customer.id, name: customer.name })}
+                    className="rounded-full border border-white/10 p-2 text-white/60 hover:border-rose-500 hover:text-rose-500 transition"
+                    title="Delete customer"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -106,6 +127,33 @@ const CustomersPage = () => {
           customerName={selectedCustomer.name}
           onClose={() => setSelectedCustomer(null)}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {customerToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-gray-900 p-6">
+            <h2 className="text-xl font-semibold text-white">Delete Customer</h2>
+            <p className="mt-3 text-white/70">
+              Are you sure you want to delete <strong className="text-white">{customerToDelete.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setCustomerToDelete(null)}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-white/30 hover:text-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(customerToDelete.id)}
+                disabled={deleteMutation.isPending}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm text-white hover:bg-rose-700 transition disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

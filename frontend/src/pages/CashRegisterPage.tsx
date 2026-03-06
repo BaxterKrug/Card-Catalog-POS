@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar } from "lucide-react";
+import { useState, useMemo } from "react";
+import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar, AlertTriangle, Filter, History } from "lucide-react";
 import {
   useCashRegisterSession,
   useOpenSession,
@@ -7,9 +7,12 @@ import {
   useCreateDeposit,
   useCreateAdjustment,
   useCashRegisterTransactions,
+  useSessionsHistory,
 } from "../hooks/useCashRegister";
+import { useAuth } from "../contexts/AuthContext";
 
 const CashRegisterPage = () => {
+  const { user } = useAuth();
   const { data: session, isLoading, isError } = useCashRegisterSession();
   const { data: transactions = [] } = useCashRegisterTransactions(session?.id);
   const openSessionMutation = useOpenSession();
@@ -31,6 +34,72 @@ const CashRegisterPage = () => {
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
   const [adjustmentNotes, setAdjustmentNotes] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<"add" | "remove">("add");
+
+  // History filters
+  const [historyStartDate, setHistoryStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    return date.toISOString().split("T")[0];
+  });
+  const [historyEndDate, setHistoryEndDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
+  const [showOnlyDiscrepancies, setShowOnlyDiscrepancies] = useState(false);
+
+  const canViewHistory = user && (user.role === "manager" || user.role === "owner");
+  
+  // Build proper date params for the API - account for timezone by adding buffer
+  const historyParams = useMemo(() => {
+    // Start at beginning of start date in local time, converted to ISO
+    const startDate = new Date(historyStartDate + "T00:00:00");
+    // End at end of end date in local time, add extra day to account for UTC offset
+    const endDate = new Date(historyEndDate + "T23:59:59");
+    endDate.setDate(endDate.getDate() + 1); // Add a day buffer for UTC
+    
+    return {
+      start_date: startDate.toISOString(),
+      end_date: endDate.toISOString(),
+    };
+  }, [historyStartDate, historyEndDate]);
+  
+  // Fetch session history for managers/owners
+  const { data: sessionsHistory = [] } = useSessionsHistory(
+    historyParams,
+    !!canViewHistory
+  );
+
+  // Calculate discrepancies between sessions
+  const sessionsWithDiscrepancies = useMemo(() => {
+    if (!sessionsHistory.length) return [];
+    
+    // Sessions are ordered newest first, so we reverse for chronological order to compare
+    const chronologicalSessions = [...sessionsHistory].reverse();
+    
+    return chronologicalSessions.map((session, index) => {
+      const previousSession = index > 0 ? chronologicalSessions[index - 1] : null;
+      // A discrepancy exists when this session's opening balance doesn't match the previous session's closing balance
+      const hasDiscrepancy = previousSession && !previousSession.is_active 
+        ? session.opening_balance_cents !== previousSession.current_balance_cents
+        : false;
+      const discrepancyAmount = previousSession && !previousSession.is_active
+        ? session.opening_balance_cents - previousSession.current_balance_cents
+        : 0;
+      
+      return {
+        ...session,
+        hasDiscrepancy,
+        discrepancyAmount,
+        previousClosingBalance: previousSession?.current_balance_cents ?? null,
+      };
+    }).reverse(); // Reverse back to newest first for display
+  }, [sessionsHistory]);
+
+  const filteredHistory = useMemo(() => {
+    if (showOnlyDiscrepancies) {
+      return sessionsWithDiscrepancies.filter(s => s.hasDiscrepancy);
+    }
+    return sessionsWithDiscrepancies;
+  }, [sessionsWithDiscrepancies, showOnlyDiscrepancies]);
 
   const formatCurrency = (cents: number) => {
     return `$${(cents / 100).toFixed(2)}`;
@@ -138,13 +207,15 @@ const CashRegisterPage = () => {
 
         {session && session.is_active && (
           <div className="flex gap-3">
-            <button
-              onClick={() => setShowAdjustmentModal(true)}
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white hover:bg-white/10"
-            >
-              <Plus size={20} />
-              Adjust Register
-            </button>
+            {user && (user.role === "manager" || user.role === "owner") && (
+              <button
+                onClick={() => setShowAdjustmentModal(true)}
+                className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white hover:bg-white/10"
+              >
+                <Plus size={20} />
+                Adjust Register
+              </button>
+            )}
             <button
               onClick={handleCloseSession}
               className="flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 font-semibold text-rose-300 hover:bg-rose-500/20"
@@ -235,6 +306,165 @@ const CashRegisterPage = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Historic Register Data - Managers/Owners Only */}
+      {canViewHistory && (
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <History size={20} className="text-accent" />
+              <h2 className="text-lg font-semibold text-white">Session History</h2>
+            </div>
+            
+            {/* Filters */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-white/60">From:</label>
+                <input
+                  type="date"
+                  value={historyStartDate}
+                  onChange={(e) => setHistoryStartDate(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-white/20"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-white/60">To:</label>
+                <input
+                  type="date"
+                  value={historyEndDate}
+                  onChange={(e) => setHistoryEndDate(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-white/20"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOnlyDiscrepancies(!showOnlyDiscrepancies)}
+                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  showOnlyDiscrepancies
+                    ? "bg-rose-500/20 border border-rose-500/50 text-rose-300"
+                    : "bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
+                }`}
+              >
+                <AlertTriangle size={14} />
+                Discrepancies Only
+              </button>
+            </div>
+          </div>
+
+          {filteredHistory.length > 0 ? (
+            <div className="space-y-2">
+              {/* Header row */}
+              <div className="grid grid-cols-6 gap-4 px-4 py-2 text-xs font-medium text-white/40 uppercase tracking-wide">
+                <div>Date</div>
+                <div className="text-right">Opening</div>
+                <div className="text-right">Closing</div>
+                <div className="text-right">Prev. Close</div>
+                <div className="text-center">Status</div>
+                <div className="text-right">Discrepancy</div>
+              </div>
+              
+              {filteredHistory.map((histSession) => (
+                <div
+                  key={histSession.id}
+                  className={`grid grid-cols-6 gap-4 items-center rounded-xl border p-4 ${
+                    histSession.hasDiscrepancy
+                      ? "border-rose-500/30 bg-rose-500/10"
+                      : "border-white/10 bg-white/5"
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-medium text-white">
+                      {new Date(histSession.opened_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-white/40">
+                      {new Date(histSession.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-white">
+                      {formatCurrency(histSession.opening_balance_cents)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-sm font-medium ${histSession.is_active ? "text-white/60" : "text-white"}`}>
+                      {histSession.is_active ? "Active" : formatCurrency(histSession.current_balance_cents)}
+                    </p>
+                    {histSession.closed_at && (
+                      <p className="text-xs text-white/40">
+                        {new Date(histSession.closed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-white/60">
+                      {histSession.previousClosingBalance !== null
+                        ? formatCurrency(histSession.previousClosingBalance)
+                        : "—"}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    {histSession.is_active ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
+                        <Unlock size={10} />
+                        Open
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-xs font-medium text-white/60">
+                        <Lock size={10} />
+                        Closed
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {histSession.hasDiscrepancy ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <AlertTriangle size={14} className="text-rose-400" />
+                        <span className={`text-sm font-semibold ${
+                          histSession.discrepancyAmount > 0 ? "text-emerald-300" : "text-rose-300"
+                        }`}>
+                          {histSession.discrepancyAmount > 0 ? "+" : ""}
+                          {formatCurrency(Math.abs(histSession.discrepancyAmount))}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-white/40">—</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <Filter size={32} className="mx-auto mb-2 text-white/20" />
+              <p className="text-sm text-white/60">
+                {showOnlyDiscrepancies
+                  ? "No discrepancies found in the selected date range"
+                  : "No sessions found in the selected date range"}
+              </p>
+            </div>
+          )}
+          
+          {/* Summary stats */}
+          {filteredHistory.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-white/10 flex gap-6">
+              <div>
+                <p className="text-xs text-white/40">Total Sessions</p>
+                <p className="text-lg font-semibold text-white">{sessionsWithDiscrepancies.length}</p>
+              </div>
+              <div>
+                <p className="text-xs text-white/40">With Discrepancies</p>
+                <p className={`text-lg font-semibold ${
+                  sessionsWithDiscrepancies.filter(s => s.hasDiscrepancy).length > 0
+                    ? "text-rose-300"
+                    : "text-emerald-300"
+                }`}>
+                  {sessionsWithDiscrepancies.filter(s => s.hasDiscrepancy).length}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

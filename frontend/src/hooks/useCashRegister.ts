@@ -16,6 +16,7 @@ export const useOpenSession = () => {
     mutationFn: cashRegisterApi.openSession,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cashRegisterSession"] });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === "cashRegisterSessionsHistory" });
     },
   });
 };
@@ -27,6 +28,7 @@ export const useCloseSession = () => {
     mutationFn: cashRegisterApi.closeSession,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cashRegisterSession"] });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === "cashRegisterSessionsHistory" });
     },
   });
 };
@@ -83,5 +85,13 @@ export const useRecordCashTransaction = () => {
       queryClient.invalidateQueries({ queryKey: ["cashRegisterSession"] });
       queryClient.invalidateQueries({ queryKey: ["cashRegisterTransactions"] });
     },
+  });
+};
+
+export const useSessionsHistory = (params?: cashRegisterApi.SessionHistoryParams, enabled: boolean = true) => {
+  return useQuery({
+    queryKey: ["cashRegisterSessionsHistory", params],
+    queryFn: () => cashRegisterApi.getSessionsHistory(params),
+    enabled: enabled && !!params,
   });
 };

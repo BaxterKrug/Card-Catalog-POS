@@ -41,3 +41,11 @@ def update_customer(customer_id: int, payload: CustomerUpdate, session: Session 
     except CardPosError as exc:
         raise_http_error(exc)
     return customer
+
+
+@router.delete("/{customer_id}", status_code=204)
+def delete_customer(customer_id: int, session: Session = Depends(db_session)) -> None:
+    try:
+        customer_service.delete_customer(session, customer_id)
+    except CardPosError as exc:
+        raise_http_error(exc)

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, desc
 from pydantic import BaseModel
 
@@ -378,4 +379,37 @@ def get_transactions(
             notes=txn.notes,
         )
         for txn in transactions
+    ]
+
+
+@router.get("/sessions/history", response_model=list[CashRegisterSessionRead])
+def get_sessions_history(
+    start_date: datetime | None = Query(None, description="Filter sessions opened on or after this date"),
+    end_date: datetime | None = Query(None, description="Filter sessions opened on or before this date"),
+    session: Session = Depends(db_session),
+) -> list[CashRegisterSessionRead]:
+    """Get historical cash register sessions with optional date filtering"""
+    statement = select(CashRegisterSession)
+    
+    if start_date:
+        statement = statement.where(CashRegisterSession.opened_at >= start_date)
+    
+    if end_date:
+        statement = statement.where(CashRegisterSession.opened_at <= end_date)
+    
+    statement = statement.order_by(desc(CashRegisterSession.opened_at))
+    sessions_list = session.exec(statement).all()
+    
+    return [
+        CashRegisterSessionRead(
+            id=s.id or 0,
+            opened_by_user_id=s.opened_by_user_id,
+            opening_balance_cents=s.opening_balance_cents,
+            current_balance_cents=s.current_balance_cents,
+            opened_at=s.opened_at.isoformat(),
+            closed_at=s.closed_at.isoformat() if s.closed_at else None,
+            is_active=s.is_active,
+            notes=s.notes,
+        )
+        for s in sessions_list
     ]

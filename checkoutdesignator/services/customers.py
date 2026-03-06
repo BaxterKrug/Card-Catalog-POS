@@ -37,3 +37,11 @@ def get_customer_or_raise(session: Session, customer_id: int) -> Customer:
     if not customer:
         raise NotFoundError(f"Customer {customer_id} not found")
     return customer
+
+
+def delete_customer(session: Session, customer_id: int) -> None:
+    customer = session.get(Customer, customer_id)
+    if not customer:
+        raise NotFoundError(f"Customer {customer_id} not found")
+    session.delete(customer)
+    session.flush()

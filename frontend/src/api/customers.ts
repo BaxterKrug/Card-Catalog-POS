@@ -31,3 +31,7 @@ export async function createCustomer(payload: CustomerCreateInput): Promise<Cust
   const { data } = await apiClient.post<Customer>("/customers", payload);
   return data;
 }
+
+export async function deleteCustomer(customerId: number): Promise<void> {
+  await apiClient.delete(`/customers/${customerId}`);
+}
