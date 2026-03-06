@@ -57,7 +57,7 @@ function App() {
         <Route 
           path="/cash-register" 
           element={
-            <ProtectedRoute allowedRoles={["owner", "manager"]}>
+            <ProtectedRoute allowedRoles={["owner", "manager", "employee"]}>
               <CashRegisterPage />
             </ProtectedRoute>
           } 

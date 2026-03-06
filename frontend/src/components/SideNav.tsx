@@ -11,7 +11,7 @@ const allLinks = [
   { to: "/preorders", label: "Preorders", icon: Sparkles, roles: ["owner", "manager", "employee"] },
   { to: "/customers", label: "Customers", icon: Users, roles: ["owner", "manager", "employee"] },
   { to: "/buylist", label: "Buylist", icon: DollarSign, roles: ["owner", "manager", "employee"] },
-  { to: "/cash-register", label: "Cash Register", icon: Wallet, roles: ["owner", "manager"] },
+  { to: "/cash-register", label: "Cash Register", icon: Wallet, roles: ["owner", "manager", "employee"] },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["owner", "manager"] }
 ];
 
