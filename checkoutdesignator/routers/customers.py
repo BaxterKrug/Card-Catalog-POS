@@ -5,7 +5,7 @@ from ..api import raise_http_error
 from ..dependencies import db_session
 from ..exceptions import CardPosError
 from ..models import Customer
-from ..schemas import CustomerCreate, CustomerUpdate
+from ..schemas import CustomerCreate, CustomerUpdate, CustomerTransferRequest
 from ..services import customers as customer_service
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -23,6 +23,20 @@ def create_customer(payload: CustomerCreate, session: Session = Depends(db_sessi
 @router.get("/", response_model=list[Customer])
 def list_customers(session: Session = Depends(db_session)) -> list[Customer]:
     return customer_service.list_customers(session)
+
+
+@router.post("/{customer_id}/transfer", status_code=200)
+def transfer_customer_records(
+    customer_id: int, 
+    payload: CustomerTransferRequest, 
+    session: Session = Depends(db_session)
+) -> dict:
+    """Transfer all records from this customer to another customer."""
+    try:
+        result = customer_service.transfer_customer_records(session, customer_id, payload.target_customer_id)
+    except CardPosError as exc:
+        raise_http_error(exc)
+    return result
 
 
 @router.get("/{customer_id}", response_model=Customer)

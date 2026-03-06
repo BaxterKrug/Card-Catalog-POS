@@ -35,3 +35,13 @@ export async function createCustomer(payload: CustomerCreateInput): Promise<Cust
 export async function deleteCustomer(customerId: number): Promise<void> {
   await apiClient.delete(`/customers/${customerId}`);
 }
+
+export async function transferCustomerRecords(
+  sourceCustomerId: number,
+  targetCustomerId: number
+): Promise<{ orders: number; preorder_orders: number; preorder_claims: number; buylist_transactions: number }> {
+  const { data } = await apiClient.post(`/customers/${sourceCustomerId}/transfer`, {
+    target_customer_id: targetCustomerId,
+  });
+  return data;
+}

@@ -36,6 +36,10 @@ class CustomerUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+class CustomerTransferRequest(BaseModel):
+    target_customer_id: int
+
+
 class UserCreate(BaseModel):
     name: str
     username: str

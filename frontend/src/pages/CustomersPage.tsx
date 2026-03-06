@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Loader2, UserPlus, Search, Trash2 } from "lucide-react";
+import { Loader2, UserPlus, Search, Trash2, ArrowRightLeft } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCustomers } from "../hooks/useCustomers";
-import { deleteCustomer } from "../api/customers";
+import { deleteCustomer, transferCustomerRecords } from "../api/customers";
 import NewCustomerModal from "../components/NewCustomerModal";
 import CustomerTransactionsModal from "../components/CustomerTransactionsModal";
 
@@ -12,6 +12,10 @@ const CustomersPage = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [customerToDelete, setCustomerToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [targetCustomerId, setTargetCustomerId] = useState<number | null>(null);
+  const [transferSuccess, setTransferSuccess] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const deleteMutation = useMutation({
@@ -19,6 +23,33 @@ const CustomersPage = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setCustomerToDelete(null);
+      setDeleteError(null);
+    },
+    onError: (error: any) => {
+      const errorMessage = error.response?.data?.detail || "Failed to delete customer. They may have related orders or transactions.";
+      setDeleteError(errorMessage);
+    },
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: ({ sourceId, targetId }: { sourceId: number; targetId: number }) =>
+      transferCustomerRecords(sourceId, targetId),
+    onSuccess: (result) => {
+      const transferred = [];
+      if (result.orders > 0) transferred.push(`${result.orders} order(s)`);
+      if (result.preorder_orders > 0) transferred.push(`${result.preorder_orders} preorder order(s)`);
+      if (result.preorder_claims > 0) transferred.push(`${result.preorder_claims} preorder claim(s)`);
+      if (result.buylist_transactions > 0) transferred.push(`${result.buylist_transactions} buylist transaction(s)`);
+      
+      setTransferSuccess(`Successfully transferred: ${transferred.join(", ")}`);
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setDeleteError(null);
+      setShowTransferModal(false);
+      setTargetCustomerId(null);
+    },
+    onError: (error: any) => {
+      const errorMessage = error.response?.data?.detail || "Failed to transfer records.";
+      setDeleteError(errorMessage);
     },
   });
 
@@ -129,28 +160,125 @@ const CustomersPage = () => {
         />
       )}
 
+      {/* Transfer Records Modal */}
+      {showTransferModal && customerToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-gray-900 p-6">
+            <h2 className="text-xl font-semibold text-white">Transfer Records</h2>
+            <p className="mt-3 text-white/70">
+              Transfer all orders, preorders, and transactions from <strong className="text-white">{customerToDelete.name}</strong> to another customer:
+            </p>
+            <div className="mt-4">
+              <label className="block text-sm text-white/60 mb-2">Select target customer</label>
+              <select
+                value={targetCustomerId || ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setTargetCustomerId(value ? Number(value) : null);
+                }}
+                className="w-full rounded-lg border border-white/10 bg-gray-800 px-4 py-2 text-white outline-none focus:border-accent focus:bg-gray-700 transition"
+              >
+                <option value="" className="bg-gray-800 text-white">Choose a customer...</option>
+                {customers
+                  .filter((c) => c.id !== customerToDelete.id)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((customer) => (
+                    <option key={customer.id} value={customer.id} className="bg-gray-800 text-white">
+                      {customer.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            {deleteError && (
+              <div className="mt-4 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3">
+                <p className="text-sm text-rose-400">{deleteError}</p>
+              </div>
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowTransferModal(false);
+                  setTargetCustomerId(null);
+                  setDeleteError(null);
+                }}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-white/30 hover:text-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (targetCustomerId) {
+                    transferMutation.mutate({
+                      sourceId: customerToDelete.id,
+                      targetId: targetCustomerId,
+                    });
+                  }
+                }}
+                disabled={!targetCustomerId || transferMutation.isPending}
+                className="rounded-full bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90 transition disabled:opacity-50"
+              >
+                {transferMutation.isPending ? "Transferring..." : "Transfer Records"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete Confirmation Modal */}
-      {customerToDelete && (
+      {customerToDelete && !showTransferModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-gray-900 p-6">
             <h2 className="text-xl font-semibold text-white">Delete Customer</h2>
             <p className="mt-3 text-white/70">
               Are you sure you want to delete <strong className="text-white">{customerToDelete.name}</strong>? This action cannot be undone.
             </p>
+            {deleteError && (
+              <div className="mt-4 rounded-lg bg-rose-500/10 border border-rose-500/20 p-3">
+                <p className="text-sm text-rose-400">{deleteError}</p>
+                <button
+                  onClick={() => {
+                    setShowTransferModal(true);
+                    setDeleteError(null);
+                  }}
+                  className="mt-2 flex items-center gap-1 text-xs text-accent hover:underline"
+                >
+                  <ArrowRightLeft size={12} /> Transfer records to another customer
+                </button>
+              </div>
+            )}
+            {transferSuccess && (
+              <div className="mt-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3">
+                <p className="text-sm text-emerald-400">{transferSuccess}</p>
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-3">
               <button
-                onClick={() => setCustomerToDelete(null)}
+                onClick={() => {
+                  setCustomerToDelete(null);
+                  setDeleteError(null);
+                  setTransferSuccess(null);
+                }}
                 className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-white/30 hover:text-white transition"
               >
                 Cancel
               </button>
-              <button
-                onClick={() => deleteMutation.mutate(customerToDelete.id)}
-                disabled={deleteMutation.isPending}
-                className="rounded-full bg-rose-600 px-4 py-2 text-sm text-white hover:bg-rose-700 transition disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? "Deleting..." : "Delete"}
-              </button>
+              {transferSuccess ? (
+                <button
+                  onClick={() => deleteMutation.mutate(customerToDelete.id)}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-full bg-rose-600 px-4 py-2 text-sm text-white hover:bg-rose-700 transition disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? "Deleting..." : "Now Delete Customer"}
+                </button>
+              ) : (
+                <button
+                  onClick={() => deleteMutation.mutate(customerToDelete.id)}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-full bg-rose-600 px-4 py-2 text-sm text-white hover:bg-rose-700 transition disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                </button>
+              )}
             </div>
           </div>
         </div>
