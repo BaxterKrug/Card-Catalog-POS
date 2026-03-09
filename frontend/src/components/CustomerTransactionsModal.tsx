@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, ShoppingCart, DollarSign, Loader2, ArrowUpRight } from "lucide-react";
+import { X, ShoppingCart, DollarSign, Loader2, ArrowUpRight, Package } from "lucide-react";
 import { useOrders } from "../hooks/useOrders";
 import { useBuylistTransactions } from "../hooks/useBuylist";
+import { usePreorderClaims, usePreorderItems } from "../hooks/usePreorders";
+import { useInventory } from "../hooks/useInventory";
 import { useNavigate } from "react-router-dom";
 
 interface CustomerTransactionsModalProps {
@@ -12,20 +14,25 @@ interface CustomerTransactionsModalProps {
 
 type Transaction = {
   id: number;
-  type: "order" | "buylist";
+  type: "order" | "buylist" | "preorder";
   date: string;
   amount_cents: number;
   status?: string;
   payment_method?: string;
   notes?: string | null;
+  productName?: string;
+  isPaid?: boolean;
 };
 
 const CustomerTransactionsModal = ({ customerId, customerName, onClose }: CustomerTransactionsModalProps) => {
   const navigate = useNavigate();
   const { data: allOrders = [], isLoading: ordersLoading } = useOrders();
   const { data: allBuylistTransactions = [], isLoading: buylistLoading } = useBuylistTransactions();
+  const { data: allPreorderClaims = [], isLoading: preordersLoading } = usePreorderClaims();
+  const { data: preorderItems = [] } = usePreorderItems();
+  const { data: inventory = [] } = useInventory();
 
-  const [filter, setFilter] = useState<"all" | "orders" | "buylist">("all");
+  const [filter, setFilter] = useState<"all" | "orders" | "buylist" | "preorders">("all");
 
   // Filter orders for this customer
   const customerOrders = useMemo(() => {
@@ -36,6 +43,19 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
   const customerBuylist = useMemo(() => {
     return allBuylistTransactions.filter((txn) => txn.customer_id === customerId);
   }, [allBuylistTransactions, customerId]);
+
+  // Filter preorder claims for this customer
+  const customerPreorders = useMemo(() => {
+    return allPreorderClaims.filter((claim) => claim.customer_id === customerId);
+  }, [allPreorderClaims, customerId]);
+
+  // Helper to get product name for preorder
+  const getPreorderProductName = (preorderItemId: number) => {
+    const preorderItem = preorderItems.find((pi) => pi.id === preorderItemId);
+    if (!preorderItem) return "Unknown Product";
+    const invItem = inventory.find((i) => i.id === preorderItem.inventory_item_id);
+    return invItem?.name || "Unknown Product";
+  };
 
   // Combine and sort transactions
   const transactions = useMemo(() => {
@@ -66,9 +86,27 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
       });
     }
 
+    if (filter === "all" || filter === "preorders") {
+      customerPreorders.forEach((claim) => {
+        const preorderItem = preorderItems.find((pi) => pi.id === claim.preorder_item_id);
+        const invItem = preorderItem ? inventory.find((i) => i.id === preorderItem.inventory_item_id) : null;
+        combined.push({
+          id: claim.id,
+          type: "preorder",
+          date: claim.created_at,
+          amount_cents: claim.payment_amount_cents || invItem?.msrp_cents || 0,
+          status: claim.is_paid ? "paid" : "unpaid",
+          payment_method: claim.payment_method || undefined,
+          notes: claim.payment_notes,
+          productName: getPreorderProductName(claim.preorder_item_id),
+          isPaid: claim.is_paid,
+        });
+      });
+    }
+
     // Sort by date descending
     return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [customerOrders, customerBuylist, filter]);
+  }, [customerOrders, customerBuylist, customerPreorders, filter, preorderItems, inventory]);
 
   // Calculate totals
   const totalSpent = useMemo(() => {
@@ -88,6 +126,17 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
       .filter((txn) => txn.payment_method === "store_credit")
       .reduce((sum, txn) => sum + txn.amount_cents, 0);
   }, [customerBuylist]);
+
+  // Calculate preorder totals
+  const totalPreorderDeposits = useMemo(() => {
+    return customerPreorders
+      .filter((claim) => claim.is_paid)
+      .reduce((sum, claim) => sum + (claim.payment_amount_cents || 0), 0);
+  }, [customerPreorders]);
+
+  const unpaidPreordersCount = useMemo(() => {
+    return customerPreorders.filter((claim) => !claim.is_paid).length;
+  }, [customerPreorders]);
 
   const formatCurrency = (cents: number) => {
     return `$${(cents / 100).toFixed(2)}`;
@@ -128,7 +177,7 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
     onClose();
   };
 
-  const isLoading = ordersLoading || buylistLoading;
+  const isLoading = ordersLoading || buylistLoading || preordersLoading;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -148,7 +197,7 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-4 border-b border-white/10 px-6 py-5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 border-b border-white/10 px-6 py-5 sm:grid-cols-4">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
               <ShoppingCart size={14} />
@@ -177,10 +226,20 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
               {customerBuylist.filter((t) => t.payment_method === "store_credit").length} transactions
             </p>
           </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
+              <Package size={14} />
+              Preorder Deposits
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-purple-400">{formatCurrency(totalPreorderDeposits)}</p>
+            <p className="mt-1 text-xs text-white/50">
+              {customerPreorders.length} preorders{unpaidPreordersCount > 0 && ` (${unpaidPreordersCount} unpaid)`}
+            </p>
+          </div>
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex gap-2 border-b border-white/10 px-6 py-3">
+        <div className="flex flex-wrap gap-2 border-b border-white/10 px-6 py-3">
           <button
             onClick={() => setFilter("all")}
             className={`rounded-full px-4 py-2 text-sm font-medium transition ${
@@ -200,6 +259,16 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
             }`}
           >
             Orders ({customerOrders.length})
+          </button>
+          <button
+            onClick={() => setFilter("preorders")}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              filter === "preorders"
+                ? "bg-accent text-white"
+                : "text-white/60 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            Preorders ({customerPreorders.length})
           </button>
           <button
             onClick={() => setFilter("buylist")}
@@ -246,11 +315,17 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
                   <div className="flex items-center gap-3">
                     <div
                       className={`rounded-full p-2 ${
-                        txn.type === "order" ? "bg-blue-500/20" : "bg-green-500/20"
+                        txn.type === "order" 
+                          ? "bg-blue-500/20" 
+                          : txn.type === "preorder"
+                          ? "bg-purple-500/20"
+                          : "bg-green-500/20"
                       }`}
                     >
                       {txn.type === "order" ? (
                         <ShoppingCart size={16} className="text-blue-300" />
+                      ) : txn.type === "preorder" ? (
+                        <Package size={16} className="text-purple-300" />
                       ) : (
                         <DollarSign size={16} className="text-green-300" />
                       )}
@@ -258,9 +333,24 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-white">
-                          {txn.type === "order" ? `Order #${txn.id}` : `Buylist #${txn.id}`}
+                          {txn.type === "order" 
+                            ? `Order #${txn.id}` 
+                            : txn.type === "preorder"
+                            ? txn.productName || `Preorder #${txn.id}`
+                            : `Buylist #${txn.id}`}
                         </p>
-                        {txn.status && (
+                        {txn.type === "preorder" && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              txn.isPaid
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : "bg-amber-500/20 text-amber-300"
+                            }`}
+                          >
+                            {txn.isPaid ? "Paid" : "Unpaid"}
+                          </span>
+                        )}
+                        {txn.type !== "preorder" && txn.status && (
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(
                               txn.status
@@ -269,7 +359,7 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
                             {txn.status}
                           </span>
                         )}
-                        {txn.payment_method && (
+                        {txn.type === "buylist" && txn.payment_method && (
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                               txn.payment_method === "cash"
@@ -288,10 +378,15 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
                   <div className="text-right">
                     <p
                       className={`text-lg font-semibold ${
-                        txn.type === "order" ? "text-white" : "text-green-400"
+                        txn.type === "order" 
+                          ? "text-white" 
+                          : txn.type === "preorder"
+                          ? "text-purple-400"
+                          : "text-green-400"
                       }`}
                     >
                       {txn.type === "buylist" && "+"}
+                      {txn.type === "preorder" && txn.isPaid && "−"}
                       {formatCurrency(txn.amount_cents)}
                     </p>
                   </div>

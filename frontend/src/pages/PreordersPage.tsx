@@ -1,10 +1,11 @@
-import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard } from "lucide-react";
+import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
 import { useAuth } from "../contexts/AuthContext";
 import type { PreorderItem, PreorderClaim } from "../api/preorders";
+import NewCustomerModal from "../components/NewCustomerModal";
 
 const PreordersPage = () => {
   const { user } = useAuth();
@@ -12,6 +13,7 @@ const PreordersPage = () => {
   const [showNewItemModal, setShowNewItemModal] = useState(false);
   const [showNewSetModal, setShowNewSetModal] = useState(false);
   const [showNewClaimModal, setShowNewClaimModal] = useState(false);
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PreorderItem | null>(null);
   const [editingClaim, setEditingClaim] = useState<PreorderClaim | null>(null);
   const [selectedGameFilter, setSelectedGameFilter] = useState<string>("all");
@@ -821,7 +823,17 @@ const PreordersPage = () => {
               className="mt-4 space-y-4"
             >
               <div>
-                <label className="block text-sm text-white/60 mb-2">Customer</label>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-white/60">Customer</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewCustomerModal(true)}
+                    className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-xs text-white/60 transition hover:border-accent hover:text-accent"
+                  >
+                    <UserPlus size={14} />
+                    New Customer
+                  </button>
+                </div>
                 
                 {/* Search Input */}
                 <div className="relative">
@@ -2255,6 +2267,13 @@ const PreordersPage = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* New Customer Modal */}
+      {showNewCustomerModal && (
+        <NewCustomerModal
+          onClose={() => setShowNewCustomerModal(false)}
+        />
       )}
     </div>
   );

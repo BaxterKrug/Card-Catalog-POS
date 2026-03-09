@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save, Smartphone, Trash2 } from "lucide-react";
+import { Loader2, Plus, DollarSign, CreditCard, User, Calendar, Search, X, Edit2, Save, Smartphone, Trash2, UserPlus } from "lucide-react";
+import NewCustomerModal from "../components/NewCustomerModal";
 import { useCustomers } from "../hooks/useCustomers";
 import { useBuylistTransactions } from "../hooks/useBuylist";
 import { createBuylistTransaction, updateBuylistTransaction, deleteBuylistTransaction, CreateBuylistTransactionPayload, UpdateBuylistTransactionPayload } from "../api/buylist";
@@ -23,6 +24,7 @@ const BuylistPage = () => {
   const [editCustomerSearchTerm, setEditCustomerSearchTerm] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "store_credit" | "cashapp" | "venmo">("cash");
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [editNotes, setEditNotes] = useState("");
 
   const createMutation = useMutation({
@@ -500,9 +502,17 @@ const BuylistPage = () => {
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
               <form id="buylist-form" onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="mb-2 block text-sm text-white/70">
+                  <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs uppercase tracking-[0.3em] text-white/40">Customer</span>
-                  </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewCustomerModal(true)}
+                      className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1 text-xs text-white/60 transition hover:border-accent hover:text-accent"
+                    >
+                      <UserPlus size={14} />
+                      New Customer
+                    </button>
+                  </div>
                   
                   {/* Search Input */}
                   <div className="relative mb-2">
@@ -673,6 +683,13 @@ const BuylistPage = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* New Customer Modal */}
+      {showNewCustomerModal && (
+        <NewCustomerModal
+          onClose={() => setShowNewCustomerModal(false)}
+        />
       )}
     </div>
   );
