@@ -1301,7 +1301,7 @@ const PreordersPage = () => {
                     payment: {
                       is_paid: false,
                       payment_amount_cents: 0,
-                      payment_method: 'none',
+                      payment_method: 'other',
                     }
                   }, {
                     onSuccess: () => {
@@ -1383,7 +1383,8 @@ const PreordersPage = () => {
                     className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
                   >
                     <option value="cash" className="bg-gray-900 text-white">Cash</option>
-                    <option value="card" className="bg-gray-900 text-white">Card</option>
+                    <option value="credit_card" className="bg-gray-900 text-white">Credit Card</option>
+                    <option value="debit_card" className="bg-gray-900 text-white">Debit Card</option>
                     <option value="store_credit" className="bg-gray-900 text-white">Store Credit</option>
                     <option value="check" className="bg-gray-900 text-white">Check</option>
                     <option value="other" className="bg-gray-900 text-white">Other</option>
