@@ -36,6 +36,20 @@ export async function deleteCustomer(customerId: number): Promise<void> {
   await apiClient.delete(`/customers/${customerId}`);
 }
 
+export interface CustomerUpdateInput {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  discord_id?: string | null;
+  default_discount_type?: DiscountType | null;
+  notes?: string | null;
+}
+
+export async function updateCustomer(customerId: number, payload: CustomerUpdateInput): Promise<Customer> {
+  const { data } = await apiClient.patch<Customer>(`/customers/${customerId}`, payload);
+  return data;
+}
+
 export async function transferCustomerRecords(
   sourceCustomerId: number,
   targetCustomerId: number

@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { Loader2, UserPlus, Search, Trash2, ArrowRightLeft } from "lucide-react";
+import { Loader2, UserPlus, Search, Trash2, ArrowRightLeft, Pencil } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCustomers } from "../hooks/useCustomers";
-import { deleteCustomer, transferCustomerRecords } from "../api/customers";
+import { deleteCustomer, transferCustomerRecords, type Customer } from "../api/customers";
 import NewCustomerModal from "../components/NewCustomerModal";
+import EditCustomerModal from "../components/EditCustomerModal";
 import CustomerTransactionsModal from "../components/CustomerTransactionsModal";
 
 const CustomersPage = () => {
   const { data: customers = [], isLoading, isError } = useCustomers();
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
+  const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [customerToDelete, setCustomerToDelete] = useState<{ id: number; name: string } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -135,6 +137,13 @@ const CustomersPage = () => {
                     View transactions
                   </button>
                   <button
+                    onClick={() => setCustomerToEdit(customer)}
+                    className="rounded-full border border-white/10 p-2 text-white/60 hover:border-accent hover:text-accent transition"
+                    title="Edit customer"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
                     onClick={() => setCustomerToDelete({ id: customer.id, name: customer.name })}
                     className="rounded-full border border-white/10 p-2 text-white/60 hover:border-rose-500 hover:text-rose-500 transition"
                     title="Delete customer"
@@ -150,6 +159,13 @@ const CustomersPage = () => {
 
       {showNewCustomerModal && (
         <NewCustomerModal onClose={() => setShowNewCustomerModal(false)} />
+      )}
+
+      {customerToEdit && (
+        <EditCustomerModal
+          customer={customerToEdit}
+          onClose={() => setCustomerToEdit(null)}
+        />
       )}
 
       {selectedCustomer && (

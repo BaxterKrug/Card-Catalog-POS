@@ -18,7 +18,7 @@ def update_customer(session: Session, customer_id: int, payload: CustomerUpdate)
     customer = session.get(Customer, customer_id)
     if not customer:
         raise NotFoundError(f"Customer {customer_id} not found")
-    for field, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(customer, field, value)
     customer.updated_at = utcnow()
     session.add(customer)
