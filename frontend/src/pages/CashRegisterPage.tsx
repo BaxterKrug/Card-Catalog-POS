@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar, AlertTriangle, Filter, History, X, Eye } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar, AlertTriangle, Filter, History, X, Eye, User } from "lucide-react";
 import {
   useCashRegisterSession,
   useOpenSession,
@@ -10,11 +10,19 @@ import {
   useSessionsHistory,
 } from "../hooks/useCashRegister";
 import { useAuth } from "../contexts/AuthContext";
+import { useUsers } from "../hooks/useUsers";
 
 const CashRegisterPage = () => {
   const { user } = useAuth();
   const { data: session, isLoading, isError } = useCashRegisterSession();
   const { data: transactions = [] } = useCashRegisterTransactions(session?.id);
+  const { data: users = [] } = useUsers();
+
+  // Helper to get user name by ID
+  const getUserName = (userId: number) => {
+    const foundUser = users.find(u => u.id === userId);
+    return foundUser?.name || `User #${userId}`;
+  };
   const openSessionMutation = useOpenSession();
   const closeSessionMutation = useCloseSession();
   const createDepositMutation = useCreateDeposit();
@@ -291,9 +299,15 @@ const CashRegisterPage = () => {
                   {getTransactionIcon(txn.transaction_type, txn.amount_cents)}
                   <div>
                     <p className="font-medium text-white">{txn.description}</p>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-white/40">
-                      <Calendar size={12} />
-                      {formatDate(txn.created_at)}
+                    <div className="mt-1 flex items-center gap-3 text-xs text-white/40">
+                      <span className="flex items-center gap-1">
+                        <Calendar size={12} />
+                        {formatDate(txn.created_at)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <User size={12} />
+                        {getUserName(txn.created_by_user_id)}
+                      </span>
                     </div>
                     {txn.notes && <p className="mt-1 text-xs text-white/60">{txn.notes}</p>}
                   </div>
@@ -837,9 +851,15 @@ const CashRegisterPage = () => {
                         {getTransactionIcon(txn.transaction_type, txn.amount_cents)}
                         <div>
                           <p className="font-medium text-white">{txn.description}</p>
-                          <div className="mt-1 flex items-center gap-2 text-xs text-white/40">
-                            <Calendar size={12} />
-                            {formatDate(txn.created_at)}
+                          <div className="mt-1 flex items-center gap-3 text-xs text-white/40">
+                            <span className="flex items-center gap-1">
+                              <Calendar size={12} />
+                              {formatDate(txn.created_at)}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <User size={12} />
+                              {getUserName(txn.created_by_user_id)}
+                            </span>
                           </div>
                           {txn.notes && <p className="mt-1 text-xs text-white/60">{txn.notes}</p>}
                         </div>
