@@ -704,8 +704,9 @@ const PreordersPage = () => {
                               ) : (
                                 <button
                                   onClick={() => fulfillClaimMutation.mutate({ claimId: claim.id, request: { mark_picked_up: true } })}
-                                  disabled={fulfillClaimMutation.isPending}
-                                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                                  disabled={fulfillClaimMutation.isPending || !claim.is_paid}
+                                  title={!claim.is_paid ? "Payment required before pickup" : undefined}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <CheckCircle size={10} />
                                   Pick Up
@@ -1894,8 +1895,9 @@ const PreordersPage = () => {
                                 ) : (
                                   <button
                                     onClick={() => fulfillClaimMutation.mutate({ claimId: claim.id, request: { mark_picked_up: true } })}
-                                    disabled={fulfillClaimMutation.isPending}
-                                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                                    disabled={fulfillClaimMutation.isPending || !claim.is_paid}
+                                    title={!claim.is_paid ? "Payment required before pickup" : undefined}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     <CheckCircle size={10} />
                                     Pick Up

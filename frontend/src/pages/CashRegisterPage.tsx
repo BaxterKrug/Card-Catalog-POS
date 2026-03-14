@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar, AlertTriangle, Filter, History } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Plus, Lock, Unlock, Calendar, AlertTriangle, Filter, History, X, Eye } from "lucide-react";
 import {
   useCashRegisterSession,
   useOpenSession,
@@ -45,6 +45,7 @@ const CashRegisterPage = () => {
     return new Date().toISOString().split("T")[0];
   });
   const [showOnlyDiscrepancies, setShowOnlyDiscrepancies] = useState(false);
+  const [selectedHistoricalSession, setSelectedHistoricalSession] = useState<number | null>(null);
 
   const canViewHistory = user && (user.role === "manager" || user.role === "owner");
   
@@ -66,6 +67,11 @@ const CashRegisterPage = () => {
   const { data: sessionsHistory = [] } = useSessionsHistory(
     historyParams,
     !!canViewHistory
+  );
+
+  // Fetch transactions for the selected historical session
+  const { data: historicalTransactions = [], isLoading: historicalTransactionsLoading } = useCashRegisterTransactions(
+    selectedHistoricalSession ?? undefined
   );
 
   // Calculate discrepancies between sessions
@@ -356,23 +362,25 @@ const CashRegisterPage = () => {
           {filteredHistory.length > 0 ? (
             <div className="space-y-2">
               {/* Header row */}
-              <div className="grid grid-cols-6 gap-4 px-4 py-2 text-xs font-medium text-white/40 uppercase tracking-wide">
+              <div className="grid grid-cols-7 gap-4 px-4 py-2 text-xs font-medium text-white/40 uppercase tracking-wide">
                 <div>Date</div>
                 <div className="text-right">Opening</div>
                 <div className="text-right">Closing</div>
                 <div className="text-right">Prev. Close</div>
                 <div className="text-center">Status</div>
                 <div className="text-right">Discrepancy</div>
+                <div className="text-center">Details</div>
               </div>
               
               {filteredHistory.map((histSession) => (
                 <div
                   key={histSession.id}
-                  className={`grid grid-cols-6 gap-4 items-center rounded-xl border p-4 ${
+                  className={`grid grid-cols-7 gap-4 items-center rounded-xl border p-4 cursor-pointer hover:bg-white/10 transition-colors ${
                     histSession.hasDiscrepancy
-                      ? "border-rose-500/30 bg-rose-500/10"
+                      ? "border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20"
                       : "border-white/10 bg-white/5"
                   }`}
+                  onClick={() => setSelectedHistoricalSession(histSession.id)}
                 >
                   <div>
                     <p className="text-sm font-medium text-white">
@@ -431,6 +439,18 @@ const CashRegisterPage = () => {
                     ) : (
                       <span className="text-sm text-white/40">—</span>
                     )}
+                  </div>
+                  <div className="text-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedHistoricalSession(histSession.id);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10 transition-colors"
+                    >
+                      <Eye size={12} />
+                      View
+                    </button>
                   </div>
                 </div>
               ))}
@@ -766,6 +786,95 @@ const CashRegisterPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Historical Session Transaction Modal */}
+      {selectedHistoricalSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl max-h-[80vh] rounded-2xl border border-white/10 bg-[#1a1a1a] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-white/10">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Session Transactions</h3>
+                {(() => {
+                  const histSession = sessionsWithDiscrepancies.find(s => s.id === selectedHistoricalSession);
+                  if (histSession) {
+                    return (
+                      <p className="mt-1 text-sm text-white/60">
+                        {new Date(histSession.opened_at).toLocaleDateString()} • 
+                        Opening: {formatCurrency(histSession.opening_balance_cents)} → 
+                        {histSession.is_active ? ' Active' : ` Closing: ${formatCurrency(histSession.current_balance_cents)}`}
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+              <button
+                onClick={() => setSelectedHistoricalSession(null)}
+                className="rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {historicalTransactionsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <p className="text-white/60">Loading transactions...</p>
+                </div>
+              ) : historicalTransactions.length > 0 ? (
+                <div className="space-y-2">
+                  {historicalTransactions.map((txn) => (
+                    <div
+                      key={txn.id}
+                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-4"
+                    >
+                      <div className="flex items-center gap-4">
+                        {getTransactionIcon(txn.transaction_type, txn.amount_cents)}
+                        <div>
+                          <p className="font-medium text-white">{txn.description}</p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-white/40">
+                            <Calendar size={12} />
+                            {formatDate(txn.created_at)}
+                          </div>
+                          {txn.notes && <p className="mt-1 text-xs text-white/60">{txn.notes}</p>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={`text-xl font-semibold ${
+                            txn.amount_cents >= 0 ? "text-emerald-300" : "text-rose-300"
+                          }`}
+                        >
+                          {txn.amount_cents >= 0 ? "+" : ""}
+                          {formatCurrency(Math.abs(txn.amount_cents))}
+                        </p>
+                        <p className="text-xs text-white/40 capitalize">{txn.transaction_type.replace("_", " ")}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <History size={48} className="mx-auto mb-4 text-white/20" />
+                  <p className="text-white/60">No transactions found for this session</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-white/10 p-4">
+              <button
+                onClick={() => setSelectedHistoricalSession(null)}
+                className="w-full rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
