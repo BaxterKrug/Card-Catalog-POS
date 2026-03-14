@@ -167,6 +167,19 @@ def fulfill_claim(
     return claim
 
 
+@router.post("/claims/{claim_id}/unfulfill", response_model=PreorderClaim)
+def unfulfill_claim(
+    claim_id: int,
+    session: Session = Depends(db_session),
+) -> PreorderClaim:
+    """Unmark a preorder claim as picked up."""
+    try:
+        claim = preorder_service.unfulfill_preorder_claim(session, claim_id)
+    except CardPosError as exc:
+        raise_http_error(exc)
+    return claim
+
+
 @router.post("/release-expired", response_model=dict)
 def release_expired_preorders(session: Session = Depends(db_session)) -> dict:
     """

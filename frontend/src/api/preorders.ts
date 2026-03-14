@@ -198,3 +198,8 @@ export const fulfillPreorderClaim = async (
   const response = await apiClient.post(`/preorders/claims/${claimId}/fulfill`, request);
   return response.data;
 };
+
+export const unfulfillPreorderClaim = async (claimId: number): Promise<PreorderClaim> => {
+  const response = await apiClient.post(`/preorders/claims/${claimId}/unfulfill`);
+  return response.data;
+};

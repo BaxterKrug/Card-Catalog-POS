@@ -13,6 +13,7 @@ import {
   recordPreorderPayment,
   cancelPreorderClaim,
   fulfillPreorderClaim,
+  unfulfillPreorderClaim,
   PreorderItemCreate,
   PreorderItemCreateWithProduct,
   PreorderSetCreate,
@@ -155,6 +156,16 @@ export const useFulfillPreorderClaim = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["preorders", "claims"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+};
+
+export const useUnfulfillPreorderClaim = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (claimId: number) => unfulfillPreorderClaim(claimId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["preorders", "claims"] });
     },
   });
 };

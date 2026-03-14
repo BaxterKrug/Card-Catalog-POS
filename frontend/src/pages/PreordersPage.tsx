@@ -1,6 +1,6 @@
-import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus } from "lucide-react";
+import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus, CheckCircle } from "lucide-react";
 import { useState, useEffect } from "react";
-import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim } from "../hooks/usePreorders";
+import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim, useFulfillPreorderClaim, useUnfulfillPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
 import { useAuth } from "../contexts/AuthContext";
@@ -17,6 +17,8 @@ const PreordersPage = () => {
   const [editingItem, setEditingItem] = useState<PreorderItem | null>(null);
   const [editingClaim, setEditingClaim] = useState<PreorderClaim | null>(null);
   const [selectedGameFilter, setSelectedGameFilter] = useState<string>("all");
+  const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>("all");
+  const [customerNameSearch, setCustomerNameSearch] = useState<string>("");
   const [viewingItemClaims, setViewingItemClaims] = useState<PreorderItem | null>(null);
   const [viewingOrderClaims, setViewingOrderClaims] = useState<number | null>(null);
   const [selectedCustomerForNewClaim, setSelectedCustomerForNewClaim] = useState<number | null>(null);
@@ -47,6 +49,8 @@ const PreordersPage = () => {
   const updateItemMutation = useUpdatePreorderItem();
   const recordPaymentMutation = useRecordPreorderPayment();
   const cancelClaimMutation = useCancelPreorderClaim();
+  const fulfillClaimMutation = useFulfillPreorderClaim();
+  const unfulfillClaimMutation = useUnfulfillPreorderClaim();
 
   // Initialize edit claim form state when modal opens
   useEffect(() => {
@@ -121,8 +125,26 @@ const PreordersPage = () => {
     return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
   });
 
-  // Filter claims based on payment status and game
+  // Get unique customers who have claims (for filter dropdown)
+  const customersWithClaims = Array.from(new Set(allClaims.map(c => c.customer_id)))
+    .map(id => customers.find(c => c.id === id))
+    .filter(Boolean)
+    .sort((a, b) => (a?.name || '').localeCompare(b?.name || ''));
+
+  // Filter claims based on payment status, game, and customer
   const preorderClaims = allClaims.filter(claim => {
+    // Filter by customer dropdown
+    if (selectedCustomerFilter !== "all" && claim.customer_id !== parseInt(selectedCustomerFilter)) {
+      return false;
+    }
+    // Filter by customer name search
+    if (customerNameSearch.trim()) {
+      const customer = customers.find(c => c.id === claim.customer_id);
+      if (!customer?.name.toLowerCase().includes(customerNameSearch.toLowerCase())) {
+        return false;
+      }
+    }
+    // Filter by game
     if (selectedGameFilter === "all") return true;
     const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
     if (!preorderItem) return false;
@@ -188,6 +210,38 @@ const PreordersPage = () => {
             <option value="all" className="bg-gray-900 text-white">All Games</option>
             {gameTitles.map(game => (
               <option key={game} value={game} className="bg-gray-900 text-white">{game}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-white/60">Customer:</span>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" size={14} />
+            <input
+              type="text"
+              value={customerNameSearch}
+              onChange={(e) => setCustomerNameSearch(e.target.value)}
+              placeholder="Search by name..."
+              className="w-40 rounded-lg border border-white/10 bg-white/5 pl-8 pr-3 py-1.5 text-sm text-white outline-none focus:border-white/20 placeholder-white/40"
+            />
+            {customerNameSearch && (
+              <button
+                onClick={() => setCustomerNameSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <select
+            value={selectedCustomerFilter}
+            onChange={(e) => setSelectedCustomerFilter(e.target.value)}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-white/20 [&>option]:bg-gray-900 [&>option]:text-white"
+          >
+            <option value="all" className="bg-gray-900 text-white">All Customers</option>
+            {customersWithClaims.map(customer => (
+              <option key={customer?.id} value={customer?.id} className="bg-gray-900 text-white">{customer?.name}</option>
             ))}
           </select>
         </div>
@@ -444,12 +498,22 @@ const PreordersPage = () => {
                 const activeClaims = claims;
                 const paidClaims = activeClaims.filter(c => c.is_paid);
                 const unpaidClaims = activeClaims.filter(c => !c.is_paid);
+                const pickedUpClaims = activeClaims.filter(c => c.status === 'fulfilled');
+                const allCustomerPickedUp = pickedUpClaims.length === activeClaims.length && activeClaims.length > 0;
+                const someCustomerPickedUp = pickedUpClaims.length > 0 && pickedUpClaims.length < activeClaims.length;
                 const totalPaid = paidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
                 const totalUnpaid = unpaidClaims.reduce((sum, c) => {
                   const preorderItem = preorderItems.find(pi => pi.id === c.preorder_item_id);
                   const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                   return sum + (invItem?.msrp_cents || 0);
                 }, 0);
+                
+                // Determine customer card border color based on pickup status
+                const customerBorderColor = allCustomerPickedUp 
+                  ? 'border-emerald-500' 
+                  : someCustomerPickedUp 
+                    ? 'border-amber-400' 
+                    : 'border-white/10';
                 
                 // Group by order for display
                 const orderGroups = activeClaims.reduce((acc, claim) => {
@@ -463,7 +527,7 @@ const PreordersPage = () => {
                 return (
                   <div
                     key={customerId}
-                    className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-3"
+                    className={`rounded-xl border ${customerBorderColor} bg-white/5 p-4 space-y-3`}
                   >
                     {/* Customer Header */}
                     <div className="flex items-center justify-between">
@@ -471,6 +535,18 @@ const PreordersPage = () => {
                         <span className="text-lg font-bold text-white">
                           {customer?.name || `Customer ${customerId}`}
                         </span>
+                        {allCustomerPickedUp && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                            <CheckCircle size={12} />
+                            All Picked Up
+                          </span>
+                        )}
+                        {someCustomerPickedUp && (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                            <CheckCircle size={12} />
+                            {pickedUpClaims.length}/{activeClaims.length} Picked Up
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-sm">
                         <span className="text-white/60">
@@ -531,9 +607,19 @@ const PreordersPage = () => {
                         )
                         .map(([orderId, orderClaims]) => {
                           const orderPaid = orderClaims.filter(c => c.is_paid).length;
+                          const orderPickedUp = orderClaims.filter(c => c.status === 'fulfilled').length;
+                          const allPickedUp = orderPickedUp === orderClaims.length;
+                          const somePickedUp = orderPickedUp > 0 && orderPickedUp < orderClaims.length;
+                          
+                          // Determine border color: green if all picked up, yellow if partial, default otherwise
+                          const borderColor = allPickedUp 
+                            ? 'border-emerald-500' 
+                            : somePickedUp 
+                              ? 'border-amber-400' 
+                              : 'border-white/10';
                           
                           return (
-                            <div key={orderId} className="pl-4 border-l-2 border-white/10">
+                            <div key={orderId} className={`pl-4 border-l-2 ${borderColor}`}>
                               <div className="flex items-center gap-2 mb-2">
                                 <span 
                                   className="text-xs font-semibold text-white/60 cursor-pointer hover:text-accent transition-colors"
@@ -549,17 +635,30 @@ const PreordersPage = () => {
                                     {orderPaid}/{orderClaims.length} paid
                                   </span>
                                 )}
+                                {allPickedUp && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                    <CheckCircle size={10} />
+                                    All Picked Up
+                                  </span>
+                                )}
+                                {somePickedUp && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                                    <CheckCircle size={10} />
+                                    {orderPickedUp}/{orderClaims.length} Picked Up
+                                  </span>
+                                )}
                               </div>
                               <div className="space-y-2">
                                 {orderClaims.map((claim) => {
                         const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                         const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                         const isSelected = selectedClaimsForPayment.has(claim.id);
+                        const isPickedUp = claim.status === 'fulfilled';
                         
                         return (
                           <div
                             key={claim.id}
-                            className="flex items-center justify-between text-sm"
+                            className={`flex items-center justify-between text-sm ${isPickedUp ? 'opacity-60' : ''}`}
                           >
                             <div className="flex items-center gap-3 flex-1">
                               {!claim.is_paid && (
@@ -592,6 +691,26 @@ const PreordersPage = () => {
                               )}
                             </div>
                             <div className="flex items-center gap-3">
+                              {isPickedUp ? (
+                                <button
+                                  onClick={() => unfulfillClaimMutation.mutate(claim.id)}
+                                  disabled={unfulfillClaimMutation.isPending}
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Click to unmark as picked up"
+                                >
+                                  <CheckCircle size={10} />
+                                  Picked Up
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => fulfillClaimMutation.mutate({ claimId: claim.id, request: { mark_picked_up: true } })}
+                                  disabled={fulfillClaimMutation.isPending}
+                                  className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                                >
+                                  <CheckCircle size={10} />
+                                  Pick Up
+                                </button>
+                              )}
                               {claim.is_paid ? (
                                 <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
                                   <DollarSign size={10} />
@@ -1679,18 +1798,42 @@ const PreordersPage = () => {
                   const totalQty = claims.reduce((sum, c) => sum + c.quantity_requested, 0);
                   const totalPaid = claims.filter(c => c.is_paid).reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0);
                   const paidCount = claims.filter(c => c.is_paid).length;
+                  const pickedUpCount = claims.filter(c => c.status === 'fulfilled').length;
+                  const allPickedUp = pickedUpCount === claims.length && claims.length > 0;
+                  const somePickedUp = pickedUpCount > 0 && pickedUpCount < claims.length;
+                  
+                  // Determine border color based on pickup status
+                  const borderColor = allPickedUp 
+                    ? 'border-emerald-500' 
+                    : somePickedUp 
+                      ? 'border-amber-400' 
+                      : 'border-white/10';
 
                   return (
                     <div
                       key={customerId}
-                      className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-2"
+                      className={`rounded-xl border ${borderColor} bg-white/5 p-4 space-y-2`}
                     >
                       {/* Customer Header */}
                       <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <p className="font-medium text-white">{customer?.name || `Customer ${customerId}`}</p>
-                          {customer?.email && (
-                            <p className="text-xs text-white/40">{customer.email}</p>
+                        <div className="flex items-center gap-3 flex-1">
+                          <div>
+                            <p className="font-medium text-white">{customer?.name || `Customer ${customerId}`}</p>
+                            {customer?.email && (
+                              <p className="text-xs text-white/40">{customer.email}</p>
+                            )}
+                          </div>
+                          {allPickedUp && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                              <CheckCircle size={12} />
+                              All Picked Up
+                            </span>
+                          )}
+                          {somePickedUp && (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300">
+                              <CheckCircle size={12} />
+                              {pickedUpCount}/{claims.length} Picked Up
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3">
@@ -1717,45 +1860,68 @@ const PreordersPage = () => {
 
                       {/* Individual Claims (Orders) */}
                       <div className="space-y-1 pl-4 border-l-2 border-white/10">
-                        {claims.map((claim) => (
-                          <div
-                            key={claim.id}
-                            className="flex items-center justify-between text-sm"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="text-white/60">•</span>
-                              <span 
-                                className="text-accent cursor-pointer hover:underline"
-                                onClick={() => {
-                                  setViewingItemClaims(null);
-                                  setViewingOrderClaims(claim.preorder_order_id);
-                                }}
-                              >
-                                Order #{claim.preorder_order_id}
-                              </span>
-                              <span className="text-white/60">Qty: {claim.quantity_requested}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              {claim.is_paid ? (
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
-                                  <DollarSign size={10} />
-                                  {formatCurrency(claim.payment_amount_cents)}
+                        {claims.map((claim) => {
+                          const isPickedUp = claim.status === 'fulfilled';
+                          return (
+                            <div
+                              key={claim.id}
+                              className={`flex items-center justify-between text-sm ${isPickedUp ? 'opacity-60' : ''}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-white/60">•</span>
+                                <span 
+                                  className="text-accent cursor-pointer hover:underline"
+                                  onClick={() => {
+                                    setViewingItemClaims(null);
+                                    setViewingOrderClaims(claim.preorder_order_id);
+                                  }}
+                                >
+                                  Order #{claim.preorder_order_id}
                                 </span>
-                              ) : (
-                                <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">Unpaid</span>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setViewingItemClaims(null);
-                                  setEditingClaim(claim);
-                                }}
-                                className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
-                              >
-                                <Edit2 size={10} />
-                              </button>
+                                <span className="text-white/60">Qty: {claim.quantity_requested}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {isPickedUp ? (
+                                  <button
+                                    onClick={() => unfulfillClaimMutation.mutate(claim.id)}
+                                    disabled={unfulfillClaimMutation.isPending}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition-colors cursor-pointer disabled:opacity-50"
+                                    title="Click to unmark as picked up"
+                                  >
+                                    <CheckCircle size={10} />
+                                    Picked Up
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => fulfillClaimMutation.mutate({ claimId: claim.id, request: { mark_picked_up: true } })}
+                                    disabled={fulfillClaimMutation.isPending}
+                                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                                  >
+                                    <CheckCircle size={10} />
+                                    Pick Up
+                                  </button>
+                                )}
+                                {claim.is_paid ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-300">
+                                    <DollarSign size={10} />
+                                    {formatCurrency(claim.payment_amount_cents)}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">Unpaid</span>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setViewingItemClaims(null);
+                                    setEditingClaim(claim);
+                                  }}
+                                  className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white/80 hover:bg-white/5"
+                                >
+                                  <Edit2 size={10} />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -2274,6 +2440,11 @@ const PreordersPage = () => {
       {showNewCustomerModal && (
         <NewCustomerModal
           onClose={() => setShowNewCustomerModal(false)}
+          onCustomerCreated={(customerId) => {
+            setSelectedCustomerForNewClaim(customerId);
+            setCustomerSearchQuery("");
+            setShowNewCustomerModal(false);
+          }}
         />
       )}
     </div>

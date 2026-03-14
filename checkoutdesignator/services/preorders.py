@@ -238,7 +238,11 @@ def create_preorder_claim(session: Session, payload: PreorderClaimCreate) -> Pre
     preorder_item.updated_at = utcnow()
     session.add(preorder_item)
 
-    claim = PreorderClaim(**payload.model_dump(), preorder_order_id=preorder_order.id)
+    claim = PreorderClaim(
+        **payload.model_dump(), 
+        preorder_order_id=preorder_order.id,
+        quantity_allocated=payload.quantity_requested  # Auto-allocate since preorder is confirmed
+    )
     session.add(claim)
     session.flush()
     return claim
@@ -319,37 +323,32 @@ def fulfill_preorder_claim(session: Session, claim_id: int, payload: PreorderCla
     preorder_item = session.get(PreorderItem, claim.preorder_item_id)
     if not preorder_item:
         raise NotFoundError("Preorder parent missing")
-    inventory_item = session.get(InventoryItem, preorder_item.inventory_item_id)
-    if not inventory_item:
-        raise NotFoundError("Inventory item missing for preorder")
-    if inventory_item.id is None:
-        raise ValidationError("Inventory item must be persisted before fulfillment")
 
     if claim.quantity_allocated < claim.quantity_requested:
         raise ValidationError("Cannot fulfill claim that does not have enough allocated stock")
 
-    # When fulfilling, reduce from main inventory (customer is picking up)
-    # Note: We never reserved main inventory, so just reduce physical directly
-    if inventory_item.physical_quantity < claim.quantity_requested:
-        raise ValidationError(f"Not enough physical inventory to fulfill preorder. Available: {inventory_item.physical_quantity}, Needed: {claim.quantity_requested}")
-    
-    inventory_item.physical_quantity -= claim.quantity_requested
-    inventory_item.updated_at = utcnow()
-
-    session.add(
-        InventoryAdjustment(
-            inventory_item_id=inventory_item.id,
-            delta=-claim.quantity_requested,
-            reason=AdjustmentReason.SALE,
-            note=payload.note or "Preorder pickup",
-            actor="pos",
-        )
-    )
-
+    # Simply mark the claim as fulfilled (picked up) - no inventory changes
+    # Inventory reconciliation happens when the preorder phase is completed:
+    # remaining inventory = allocation - fulfilled claims
     claim.status = PreorderClaimStatus.FULFILLED if payload.mark_picked_up else PreorderClaimStatus.ALLOCATED
     claim.updated_at = utcnow()
     session.add(claim)
-    session.add(inventory_item)
+    session.flush()
+    return claim
+
+
+def unfulfill_preorder_claim(session: Session, claim_id: int) -> PreorderClaim:
+    """Unmark a preorder claim as picked up (revert from FULFILLED to ALLOCATED)."""
+    claim = session.get(PreorderClaim, claim_id)
+    if not claim:
+        raise NotFoundError("Preorder claim not found")
+    
+    if claim.status != PreorderClaimStatus.FULFILLED:
+        raise ValidationError("Claim is not marked as picked up")
+    
+    claim.status = PreorderClaimStatus.ALLOCATED
+    claim.updated_at = utcnow()
+    session.add(claim)
     session.flush()
     return claim
 
