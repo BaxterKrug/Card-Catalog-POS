@@ -27,11 +27,15 @@ const OrdersPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  // Initialize customer filter from URL params
+  // Initialize filters from URL params
   useEffect(() => {
     const customerId = searchParams.get("customer");
     if (customerId) {
       setCustomerFilter(customerId);
+    }
+    const searchQuery = searchParams.get("search");
+    if (searchQuery) {
+      setSearchTerm(searchQuery);
     }
   }, [searchParams]);
 

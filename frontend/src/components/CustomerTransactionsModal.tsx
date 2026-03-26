@@ -177,6 +177,11 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
     onClose();
   };
 
+  const handleViewAllPreorders = () => {
+    navigate(`/preorders?customer=${customerId}`);
+    onClose();
+  };
+
   const isLoading = ordersLoading || buylistLoading || preordersLoading;
 
   return (
@@ -280,12 +285,18 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
           >
             Buylist ({customerBuylist.length})
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
             <button
               onClick={handleViewAllOrders}
               className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-accent hover:text-accent"
             >
               View in Orders <ArrowUpRight size={14} />
+            </button>
+            <button
+              onClick={handleViewAllPreorders}
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-purple-400 hover:text-purple-400"
+            >
+              View in Preorders <ArrowUpRight size={14} />
             </button>
           </div>
         </div>

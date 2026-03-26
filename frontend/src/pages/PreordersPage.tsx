@@ -1,5 +1,6 @@
-import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus, CheckCircle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus, CheckCircle, ChevronDown, ChevronRight, Archive } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim, useFulfillPreorderClaim, useUnfulfillPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
@@ -9,6 +10,7 @@ import NewCustomerModal from "../components/NewCustomerModal";
 
 const PreordersPage = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [paymentFilter, setPaymentFilter] = useState<"all" | "paid" | "unpaid">("all");
   const [showNewItemModal, setShowNewItemModal] = useState(false);
   const [showNewSetModal, setShowNewSetModal] = useState(false);
@@ -19,6 +21,7 @@ const PreordersPage = () => {
   const [selectedGameFilter, setSelectedGameFilter] = useState<string>("all");
   const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>("all");
   const [customerNameSearch, setCustomerNameSearch] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [viewingItemClaims, setViewingItemClaims] = useState<PreorderItem | null>(null);
   const [viewingOrderClaims, setViewingOrderClaims] = useState<number | null>(null);
   const [selectedCustomerForNewClaim, setSelectedCustomerForNewClaim] = useState<number | null>(null);
@@ -31,6 +34,8 @@ const PreordersPage = () => {
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [editClaimCashTendered, setEditClaimCashTendered] = useState<string>('');
   const [editClaimPaymentMethod, setEditClaimPaymentMethod] = useState<string>('cash');
+  const [showPastSets, setShowPastSets] = useState(false);
+  const [collapsedSets, setCollapsedSets] = useState<Set<string>>(new Set());
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
@@ -59,6 +64,18 @@ const PreordersPage = () => {
       setEditClaimCashTendered('');
     }
   }, [editingClaim]);
+
+  // Initialize customer filter from URL params
+  useEffect(() => {
+    const customerId = searchParams.get("customer");
+    if (customerId) {
+      setSelectedCustomerFilter(customerId);
+    }
+    const searchQuery = searchParams.get("search");
+    if (searchQuery) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchParams]);
 
   const isLoading = itemsLoading || claimsLoading;
   const isError = itemsError || claimsError;
@@ -118,12 +135,40 @@ const PreordersPage = () => {
   }, {} as Record<string, { gameTitle: string; releaseDate: string | null; notes: string; items: PreorderItem[] }>);
 
   // Convert to array and sort by release date
-  const preorderSets = Object.values(groupedPreorderSets).sort((a, b) => {
+  const allPreorderSets = Object.values(groupedPreorderSets).sort((a, b) => {
     if (!a.releaseDate && !b.releaseDate) return 0;
     if (!a.releaseDate) return 1;
     if (!b.releaseDate) return -1;
     return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
   });
+
+  // Helper to determine if a set is "past" (release date passed AND all claims fulfilled)
+  const isSetPast = (set: typeof allPreorderSets[0]) => {
+    // Check if release date is more than 30 days in the past
+    if (!set.releaseDate) return false;
+    const releaseDate = new Date(set.releaseDate);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    if (releaseDate > thirtyDaysAgo) return false;
+    
+    // Get all claims for this set
+    const setClaims = allClaims.filter(claim => 
+      set.items.some(item => item.id === claim.preorder_item_id)
+    );
+    
+    // If no claims, it's past if release date passed
+    if (setClaims.length === 0) return true;
+    
+    // Check if all claims are fulfilled (picked up)
+    return setClaims.every(claim => claim.status === 'fulfilled');
+  };
+
+  // Split into active and past sets
+  const activePreorderSets = allPreorderSets.filter(set => !isSetPast(set));
+  const pastPreorderSets = allPreorderSets.filter(set => isSetPast(set));
+  
+  // Use active sets for display by default
+  const preorderSets = activePreorderSets;
 
   // Get unique customers who have claims (for filter dropdown)
   const customersWithClaims = Array.from(new Set(allClaims.map(c => c.customer_id)))
@@ -131,26 +176,46 @@ const PreordersPage = () => {
     .filter(Boolean)
     .sort((a, b) => (a?.name || '').localeCompare(b?.name || ''));
 
-  // Filter claims based on payment status, game, and customer
-  const preorderClaims = allClaims.filter(claim => {
-    // Filter by customer dropdown
-    if (selectedCustomerFilter !== "all" && claim.customer_id !== parseInt(selectedCustomerFilter)) {
-      return false;
-    }
-    // Filter by customer name search
-    if (customerNameSearch.trim()) {
-      const customer = customers.find(c => c.id === claim.customer_id);
-      if (!customer?.name.toLowerCase().includes(customerNameSearch.toLowerCase())) {
+  // Filter claims based on payment status, game, customer, and search term
+  const preorderClaims = useMemo(() => {
+    return allClaims.filter(claim => {
+      // Filter by customer dropdown
+      if (selectedCustomerFilter !== "all" && claim.customer_id !== parseInt(selectedCustomerFilter)) {
         return false;
       }
-    }
-    // Filter by game
-    if (selectedGameFilter === "all") return true;
-    const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
-    if (!preorderItem) return false;
-    const invItem = inventory.find(i => i.id === preorderItem.inventory_item_id);
-    return invItem?.game_title === selectedGameFilter;
-  });
+      // Filter by customer name search (legacy field)
+      if (customerNameSearch.trim()) {
+        const customer = customers.find(c => c.id === claim.customer_id);
+        if (!customer?.name.toLowerCase().includes(customerNameSearch.toLowerCase())) {
+          return false;
+        }
+      }
+      // Filter by search term (customer name, product name, or SKU)
+      if (searchTerm.trim()) {
+        const search = searchTerm.toLowerCase();
+        const customer = customers.find(c => c.id === claim.customer_id);
+        const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+        const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+        
+        const matchesCustomer = customer?.name?.toLowerCase().includes(search);
+        const matchesProduct = invItem?.name?.toLowerCase().includes(search);
+        const matchesSku = invItem?.sku?.toLowerCase().includes(search);
+        const matchesGame = invItem?.game_title?.toLowerCase().includes(search);
+        const matchesClaimId = claim.id.toString().includes(search);
+        const matchesOrderId = claim.preorder_order_id?.toString().includes(search);
+        
+        if (!matchesCustomer && !matchesProduct && !matchesSku && !matchesGame && !matchesClaimId && !matchesOrderId) {
+          return false;
+        }
+      }
+      // Filter by game
+      if (selectedGameFilter === "all") return true;
+      const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
+      if (!preorderItem) return false;
+      const invItem = inventory.find(i => i.id === preorderItem.inventory_item_id);
+      return invItem?.game_title === selectedGameFilter;
+    });
+  }, [allClaims, selectedCustomerFilter, customerNameSearch, searchTerm, selectedGameFilter, customers, preorderItems, inventory]);
 
   // Calculate total paid and unpaid claims
   const paidClaims = preorderClaims.filter(c => c.is_paid);
@@ -199,6 +264,26 @@ const PreordersPage = () => {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" size={18} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search by customer, product, SKU, or order #..."
+            className="w-full rounded-2xl border border-white/10 bg-[#080b12] pl-10 pr-10 py-2 text-sm text-white placeholder-white/30 focus:border-accent focus:outline-none"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
         <div className="flex items-center gap-2">
           <Filter size={16} className="text-white/40" />
           <span className="text-sm text-white/60">Game:</span>
@@ -334,30 +419,51 @@ const PreordersPage = () => {
               );
               const setPaidClaims = setClaims.filter(c => c.is_paid);
               const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
+
+              const setKey = `active-${set.gameTitle}-${set.releaseDate}`;
+              const isCollapsed = collapsedSets.has(setKey);
+
+              const toggleSetCollapse = () => {
+                setCollapsedSets(prev => {
+                  const next = new Set(prev);
+                  if (next.has(setKey)) {
+                    next.delete(setKey);
+                  } else {
+                    next.add(setKey);
+                  }
+                  return next;
+                });
+              };
               
               return (
                 <div
                   key={setIndex}
                   className="rounded-3xl border border-white/10 bg-white/5 p-6"
                 >
-                  {/* Set Header */}
-                  <div className="mb-5 flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-semibold text-white">{set.gameTitle}</h3>
-                        <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium text-accent">
-                          {set.items.length} {set.items.length === 1 ? 'Product' : 'Products'}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex items-center gap-3 text-sm text-white/60">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={16} />
-                          <span>Release: {formatDate(set.releaseDate)}</span>
+                  {/* Set Header - Clickable to collapse */}
+                  <div 
+                    className="flex items-start justify-between cursor-pointer"
+                    onClick={toggleSetCollapse}
+                  >
+                    <div className="flex items-center gap-3">
+                      {isCollapsed ? <ChevronRight size={20} className="text-white/60" /> : <ChevronDown size={20} className="text-white/60" />}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-xl font-semibold text-white">{set.gameTitle}</h3>
+                          <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium text-accent">
+                            {set.items.length} {set.items.length === 1 ? 'Product' : 'Products'}
+                          </span>
                         </div>
+                        <div className="mt-2 flex items-center gap-3 text-sm text-white/60">
+                          <div className="flex items-center gap-2">
+                            <Calendar size={16} />
+                            <span>Release: {formatDate(set.releaseDate)}</span>
+                          </div>
+                        </div>
+                        {set.notes && (
+                          <p className="mt-2 text-sm text-white/50 italic">{set.notes}</p>
+                        )}
                       </div>
-                      {set.notes && (
-                        <p className="mt-2 text-sm text-white/50 italic">{set.notes}</p>
-                      )}
                     </div>
                     
                     {/* Set Summary Stats */}
@@ -377,41 +483,46 @@ const PreordersPage = () => {
                     </div>
                   </div>
 
-                  {/* Products in Set */}
-                  <div className="space-y-3">
-                    {set.items.map((item) => {
-                      const invItem = inventory.find(i => i.id === item.inventory_item_id);
-                      const itemClaims = preorderClaims.filter(c => c.preorder_item_id === item.id);
-                      const itemPaidClaims = itemClaims.filter(c => c.is_paid);
-                      const availableQty = item.preorder_quantity - item.preorder_quantity_allocated;
-                      
-                      return (
-                        <div
-                          key={item.id}
-                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white cursor-pointer hover:bg-white/10 transition-colors"
-                          onClick={() => setViewingItemClaims(item)}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3">
-                                <p className="font-medium">{invItem?.name || `Preorder Item #${item.id}`}</p>
-                                <span className="text-xs text-white/40">SKU: {invItem?.sku || 'N/A'}</span>
+                  {/* Products in Set - Collapsible */}
+                  {!isCollapsed && (
+                    <>
+                    <div className="mt-5 space-y-3">
+                      {set.items.map((item) => {
+                        const invItem = inventory.find(i => i.id === item.inventory_item_id);
+                        const itemClaims = preorderClaims.filter(c => c.preorder_item_id === item.id);
+                        const itemPaidClaims = itemClaims.filter(c => c.is_paid);
+                        const availableQty = item.preorder_quantity - item.preorder_quantity_allocated;
+                        
+                        return (
+                          <div
+                            key={item.id}
+                            className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white cursor-pointer hover:bg-white/10 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewingItemClaims(item);
+                            }}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3">
+                                  <p className="font-medium">{invItem?.name || `Preorder Item #${item.id}`}</p>
+                                  <span className="text-xs text-white/40">SKU: {invItem?.sku || 'N/A'}</span>
+                                </div>
                               </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingItem(item);
+                                }}
+                                className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
+                              >
+                                <Edit2 size={12} />
+                                Edit
+                              </button>
                             </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingItem(item);
-                              }}
-                              className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
-                            >
-                              <Edit2 size={12} />
-                              Edit
-                            </button>
-                          </div>
-                          
-                          <div className="mt-3 flex items-center gap-6 text-sm">
-                            <div className="flex items-center gap-2">
+                            
+                            <div className="mt-3 flex items-center gap-6 text-sm">
+                              <div className="flex items-center gap-2">
                               <span className="text-white/40">Allocated:</span>
                               <span className="font-semibold text-white">{item.preorder_quantity}</span>
                             </div>
@@ -433,31 +544,33 @@ const PreordersPage = () => {
                         </div>
                       );
                     })}
-                  </div>
-
-                  {/* Set Footer - Payment Summary */}
-                  {setClaims.length > 0 && (
-                    <div className="mt-4 flex items-center gap-6 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/60">Customer Preorders:</span>
-                        <span className="font-semibold text-white">{setClaims.length}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <DollarSign size={14} className="text-emerald-300" />
-                        <span className="text-white/60">Paid:</span>
-                        <span className="font-semibold text-emerald-300">{setPaidClaims.length}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/60">Unpaid:</span>
-                        <span className="font-semibold text-amber-300">{setUnpaidClaims.length}</span>
-                      </div>
-                      <div className="ml-auto flex items-center gap-2">
-                        <span className="text-white/60">Total Deposits:</span>
-                        <span className="font-semibold text-emerald-300">
-                          {formatCurrency(setPaidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0))}
-                        </span>
-                      </div>
                     </div>
+
+                    {/* Set Footer - Payment Summary */}
+                    {setClaims.length > 0 && (
+                      <div className="mt-4 flex items-center gap-6 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/60">Customer Preorders:</span>
+                          <span className="font-semibold text-white">{setClaims.length}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <DollarSign size={14} className="text-emerald-300" />
+                          <span className="text-white/60">Paid:</span>
+                          <span className="font-semibold text-emerald-300">{setPaidClaims.length}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/60">Unpaid:</span>
+                          <span className="font-semibold text-amber-300">{setUnpaidClaims.length}</span>
+                        </div>
+                        <div className="ml-auto flex items-center gap-2">
+                          <span className="text-white/60">Total Deposits:</span>
+                          <span className="font-semibold text-emerald-300">
+                            {formatCurrency(setPaidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                   )}
                 </div>
               );
@@ -465,6 +578,183 @@ const PreordersPage = () => {
           </div>
         )}
       </div>
+
+      {/* Past Preorder Sets - Collapsible */}
+      {pastPreorderSets.length > 0 && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setShowPastSets(!showPastSets)}
+            className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left transition-colors hover:bg-white/10"
+          >
+            {showPastSets ? <ChevronDown size={20} className="text-white/60" /> : <ChevronRight size={20} className="text-white/60" />}
+            <Archive size={20} className="text-white/40" />
+            <div className="flex-1">
+              <span className="text-lg font-semibold text-white">Past Preorders</span>
+              <span className="ml-3 text-sm text-white/50">
+                ({pastPreorderSets.length} {pastPreorderSets.length === 1 ? 'set' : 'sets'})
+              </span>
+            </div>
+            <span className="text-xs text-white/40">
+              Released 30+ days ago with all orders fulfilled
+            </span>
+          </button>
+
+          {showPastSets && (
+            <div className="space-y-6 pl-4 border-l-2 border-white/10">
+              {pastPreorderSets.map((set, setIndex) => {
+                // Calculate set-level statistics
+                const setTotalStock = set.items.reduce((sum, item) => sum + item.preorder_quantity, 0);
+                const setTotalAllocated = set.items.reduce((sum, item) => sum + item.preorder_quantity_allocated, 0);
+                const setTotalAvailable = setTotalStock - setTotalAllocated;
+                
+                // Get all claims for this set
+                const setClaims = preorderClaims.filter(claim => 
+                  set.items.some(item => item.id === claim.preorder_item_id)
+                );
+                const setPaidClaims = setClaims.filter(c => c.is_paid);
+                const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
+                const setKey = `past-${set.gameTitle}-${set.releaseDate}`;
+                const isCollapsed = collapsedSets.has(setKey);
+
+                const toggleSetCollapse = () => {
+                  setCollapsedSets(prev => {
+                    const next = new Set(prev);
+                    if (next.has(setKey)) {
+                      next.delete(setKey);
+                    } else {
+                      next.add(setKey);
+                    }
+                    return next;
+                  });
+                };
+                
+                return (
+                  <div
+                    key={`past-${setIndex}`}
+                    className="rounded-3xl border border-white/10 bg-white/5 p-6 opacity-80"
+                  >
+                    {/* Set Header */}
+                    <div 
+                      className="flex items-start justify-between cursor-pointer"
+                      onClick={toggleSetCollapse}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isCollapsed ? <ChevronRight size={20} className="text-white/60" /> : <ChevronDown size={20} className="text-white/60" />}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-xl font-semibold text-white">{set.gameTitle}</h3>
+                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/60">
+                              {set.items.length} {set.items.length === 1 ? 'Product' : 'Products'}
+                            </span>
+                            <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-300">
+                              Completed
+                            </span>
+                          </div>
+                          <div className="mt-2 flex items-center gap-3 text-sm text-white/60">
+                            <div className="flex items-center gap-2">
+                              <Calendar size={16} />
+                              <span>Released: {formatDate(set.releaseDate)}</span>
+                            </div>
+                          </div>
+                          {set.notes && (
+                            <p className="mt-2 text-sm text-white/50 italic">{set.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Set Summary Stats - Always visible */}
+                      <div className="flex gap-3">
+                        <div className="rounded-lg bg-white/5 px-4 py-2 text-center">
+                          <p className="text-xs text-white/40">Claims</p>
+                          <p className="mt-1 text-lg font-semibold text-white/70">{setClaims.length}</p>
+                        </div>
+                        <div className="rounded-lg bg-white/5 px-4 py-2 text-center">
+                          <p className="text-xs text-white/40">Deposits</p>
+                          <p className="mt-1 text-lg font-semibold text-emerald-300/70">
+                            {formatCurrency(setPaidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0))}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expandable Products in Set */}
+                    {!isCollapsed && (
+                      <>
+                        <div className="mt-5 space-y-3">
+                          {set.items.map((item) => {
+                            const invItem = inventory.find(i => i.id === item.inventory_item_id);
+                            const itemClaims = preorderClaims.filter(c => c.preorder_item_id === item.id);
+                            const itemPaidClaims = itemClaims.filter(c => c.is_paid);
+                            const availableQty = item.preorder_quantity - item.preorder_quantity_allocated;
+                            
+                            return (
+                              <div
+                                key={item.id}
+                                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white cursor-pointer hover:bg-white/10 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewingItemClaims(item);
+                                }}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3">
+                                      <p className="font-medium">{invItem?.name || `Preorder Item #${item.id}`}</p>
+                                      <span className="text-xs text-white/40">SKU: {invItem?.sku || 'N/A'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="mt-3 flex items-center gap-6 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-white/40">Allocated:</span>
+                                    <span className="font-semibold text-white">{item.preorder_quantity}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-white/40">Claimed:</span>
+                                    <span className="font-semibold text-amber-300">{item.preorder_quantity_allocated}</span>
+                                  </div>
+                                  {itemClaims.length > 0 && (
+                                    <div className="ml-auto flex items-center gap-3 text-xs text-white/60">
+                                      <span>{itemClaims.length} preorders</span>
+                                      <span className="text-emerald-300">{itemPaidClaims.length} paid</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Set Footer - Payment Summary */}
+                        {setClaims.length > 0 && (
+                          <div className="mt-4 flex items-center gap-6 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="text-white/60">Customer Preorders:</span>
+                              <span className="font-semibold text-white">{setClaims.length}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <DollarSign size={14} className="text-emerald-300" />
+                              <span className="text-white/60">Paid:</span>
+                              <span className="font-semibold text-emerald-300">{setPaidClaims.length}</span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-2">
+                              <span className="text-white/60">Total Deposits:</span>
+                              <span className="font-semibold text-emerald-300">
+                                {formatCurrency(setPaidClaims.reduce((sum, c) => sum + (c.payment_amount_cents || 0), 0))}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Claims List - Grouped by Customer */}
       {preorderClaims.length > 0 && (
