@@ -211,7 +211,7 @@ class OrderPaymentCreate(BaseModel):
 
 
 class OrderPaymentRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
     
     id: int
     order_id: int
@@ -223,7 +223,7 @@ class OrderPaymentRead(BaseModel):
 
 
 class OrderRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
     
     id: int
     customer_id: int
@@ -270,6 +270,7 @@ class PreorderItemUpdate(BaseModel):
     release_date: Optional[date] = None
     preorder_quantity: Optional[int] = Field(default=None, ge=0)
     notes: Optional[str] = None
+    is_archived: Optional[bool] = None  # Manually archive/unarchive
     # Inventory item updates
     msrp_cents: Optional[int] = Field(default=None, ge=0)
     set_code: Optional[str] = None

@@ -63,7 +63,7 @@ const TopBar = ({ onNewOrder, onReceiveStock }: TopBarProps) => {
           id: customer.id,
           title: customer.name,
           subtitle: customer.email || customer.phone || "Customer",
-          route: `/customers?search=${encodeURIComponent(customer.name)}`
+          route: `/customers?customerId=${customer.id}`
         });
       }
     });

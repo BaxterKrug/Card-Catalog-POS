@@ -208,6 +208,7 @@ class PreorderItem(SQLModel, table=True):
     
     quantity_cap: Optional[int] = Field(default=None, ge=1)  # Max claims allowed (can differ from preorder_quantity)
     notes: Optional[str] = None
+    is_archived: bool = Field(default=False)  # Manually archived by user
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=utcnow, nullable=False)
 

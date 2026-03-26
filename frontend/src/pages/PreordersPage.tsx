@@ -36,7 +36,6 @@ const PreordersPage = () => {
   const [editClaimPaymentMethod, setEditClaimPaymentMethod] = useState<string>('cash');
   const [showPastSets, setShowPastSets] = useState(false);
   const [collapsedSets, setCollapsedSets] = useState<Set<string>>(new Set());
-  const [manuallyArchivedSets, setManuallyArchivedSets] = useState<Set<string>>(new Set());
   const [editingSetName, setEditingSetName] = useState<{ setKey: string; currentName: string } | null>(null);
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
@@ -150,11 +149,10 @@ const PreordersPage = () => {
   const getSetKey = (set: typeof allPreorderSets[0]) => 
     `${set.gameTitle}|||${set.setCode}|||${set.releaseDate}|||${set.notes}`;
 
-  // Helper to determine if a set is "past" (release date passed AND all claims fulfilled, OR manually archived)
+  // Helper to determine if a set is "past" (manually archived OR auto-archived by date/fulfillment)
   const isSetPast = (set: typeof allPreorderSets[0]) => {
-    // Check if manually archived
-    const setKey = getSetKey(set);
-    if (manuallyArchivedSets.has(setKey)) return true;
+    // Check if any item in the set is manually archived (all should have same status)
+    if (set.items.some(item => item.is_archived)) return true;
 
     // Check if release date is more than 14 days in the past
     if (!set.releaseDate) return false;
@@ -175,18 +173,22 @@ const PreordersPage = () => {
     return setClaims.every(claim => claim.status === 'fulfilled');
   };
 
-  // Helper to manually archive/unarchive a set
-  const toggleArchiveSet = (set: typeof allPreorderSets[0]) => {
-    const setKey = getSetKey(set);
-    setManuallyArchivedSets(prev => {
-      const next = new Set(prev);
-      if (next.has(setKey)) {
-        next.delete(setKey);
-      } else {
-        next.add(setKey);
+  // Helper to manually archive/unarchive a set (persisted to backend)
+  const toggleArchiveSet = async (set: typeof allPreorderSets[0]) => {
+    // Toggle based on current archive status (check first item)
+    const newArchivedStatus = !set.items[0]?.is_archived;
+    
+    // Update all items in the set
+    for (const item of set.items) {
+      try {
+        await updateItemMutation.mutateAsync({
+          itemId: item.id,
+          update: { is_archived: newArchivedStatus }
+        });
+      } catch (error) {
+        console.error(`Failed to archive item ${item.id}:`, error);
       }
-      return next;
-    });
+    }
   };
 
   // Split into active and past sets
@@ -202,9 +204,22 @@ const PreordersPage = () => {
     .filter(Boolean)
     .sort((a, b) => (a?.name || '').localeCompare(b?.name || ''));
 
+  // Get item IDs from active (non-archived) sets for filtering customer claims
+  const activeSetItemIds = useMemo(() => {
+    const itemIds = new Set<number>();
+    activePreorderSets.forEach(set => {
+      set.items.forEach(item => itemIds.add(item.id));
+    });
+    return itemIds;
+  }, [activePreorderSets]);
+
   // Filter claims based on payment status, game, customer, and search term
   const preorderClaims = useMemo(() => {
     return allClaims.filter(claim => {
+      // Only show claims from active (non-archived) sets
+      if (!activeSetItemIds.has(claim.preorder_item_id)) {
+        return false;
+      }
       // Filter by customer dropdown
       if (selectedCustomerFilter !== "all" && claim.customer_id !== parseInt(selectedCustomerFilter)) {
         return false;
@@ -241,7 +256,7 @@ const PreordersPage = () => {
       const invItem = inventory.find(i => i.id === preorderItem.inventory_item_id);
       return invItem?.game_title === selectedGameFilter;
     });
-  }, [allClaims, selectedCustomerFilter, customerNameSearch, searchTerm, selectedGameFilter, customers, preorderItems, inventory]);
+  }, [allClaims, selectedCustomerFilter, customerNameSearch, searchTerm, selectedGameFilter, customers, preorderItems, inventory, activeSetItemIds]);
 
   // Calculate total paid and unpaid claims
   const paidClaims = preorderClaims.filter(c => c.is_paid);
@@ -674,7 +689,7 @@ const PreordersPage = () => {
                 const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
                 const setKey = `past-${set.gameTitle}-${set.setCode}-${set.releaseDate}`;
                 const isCollapsed = collapsedSets.has(setKey);
-                const isManuallyArchived = manuallyArchivedSets.has(getSetKey(set));
+                const isManuallyArchived = set.items.some(item => item.is_archived);
 
                 const toggleSetCollapse = () => {
                   setCollapsedSets(prev => {

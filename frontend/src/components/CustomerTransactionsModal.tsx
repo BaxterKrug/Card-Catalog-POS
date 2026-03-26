@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { X, ShoppingCart, DollarSign, Loader2, ArrowUpRight, Package } from "lucide-react";
+import { useMemo, useState } from "react";
+import { X, ShoppingCart, DollarSign, Loader2, Package, Calendar, User, CreditCard } from "lucide-react";
 import { useOrders } from "../hooks/useOrders";
 import { useBuylistTransactions } from "../hooks/useBuylist";
 import { usePreorderClaims, usePreorderItems } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
-import { useNavigate } from "react-router-dom";
+import { useCustomers } from "../hooks/useCustomers";
+import { type Order } from "../api/orders";
+import { type PreorderClaim } from "../api/preorders";
+import { type BuylistTransaction } from "../api/buylist";
+import OrderDetailModal from "./OrderDetailModal";
 
 interface CustomerTransactionsModalProps {
   customerId: number;
@@ -25,14 +29,17 @@ type Transaction = {
 };
 
 const CustomerTransactionsModal = ({ customerId, customerName, onClose }: CustomerTransactionsModalProps) => {
-  const navigate = useNavigate();
   const { data: allOrders = [], isLoading: ordersLoading } = useOrders();
   const { data: allBuylistTransactions = [], isLoading: buylistLoading } = useBuylistTransactions();
   const { data: allPreorderClaims = [], isLoading: preordersLoading } = usePreorderClaims();
   const { data: preorderItems = [] } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
+  const { data: customers = [] } = useCustomers();
 
   const [filter, setFilter] = useState<"all" | "orders" | "buylist" | "preorders">("all");
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedPreorderClaim, setSelectedPreorderClaim] = useState<PreorderClaim | null>(null);
+  const [selectedBuylistTxn, setSelectedBuylistTxn] = useState<BuylistTransaction | null>(null);
 
   // Filter orders for this customer
   const customerOrders = useMemo(() => {
@@ -117,13 +124,13 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
 
   const totalCashReceived = useMemo(() => {
     return customerBuylist
-      .filter((txn) => txn.payment_method === "cash")
+      .filter((txn) => txn.payment_method?.toLowerCase() === "cash")
       .reduce((sum, txn) => sum + txn.amount_cents, 0);
   }, [customerBuylist]);
 
   const totalCreditReceived = useMemo(() => {
     return customerBuylist
-      .filter((txn) => txn.payment_method === "store_credit")
+      .filter((txn) => txn.payment_method?.toLowerCase() === "store_credit")
       .reduce((sum, txn) => sum + txn.amount_cents, 0);
   }, [customerBuylist]);
 
@@ -172,14 +179,25 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
     }
   };
 
-  const handleViewAllOrders = () => {
-    navigate(`/orders?customer=${customerId}`);
-    onClose();
+  const handleOrderClick = (orderId: number) => {
+    const order = customerOrders.find(o => o.id === orderId);
+    if (order) {
+      setSelectedOrder(order);
+    }
   };
 
-  const handleViewAllPreorders = () => {
-    navigate(`/preorders?customer=${customerId}`);
-    onClose();
+  const handlePreorderClick = (claimId: number) => {
+    const claim = customerPreorders.find(c => c.id === claimId);
+    if (claim) {
+      setSelectedPreorderClaim(claim);
+    }
+  };
+
+  const handleBuylistClick = (txnId: number) => {
+    const txn = customerBuylist.find(t => t.id === txnId);
+    if (txn) {
+      setSelectedBuylistTxn(txn);
+    }
   };
 
   const isLoading = ordersLoading || buylistLoading || preordersLoading;
@@ -218,7 +236,7 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
             </div>
             <p className="mt-2 text-2xl font-semibold text-green-400">{formatCurrency(totalCashReceived)}</p>
             <p className="mt-1 text-xs text-white/50">
-              {customerBuylist.filter((t) => t.payment_method === "cash").length} transactions
+              {customerBuylist.filter((t) => t.payment_method?.toLowerCase() === "cash").length} transactions
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -228,7 +246,7 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
             </div>
             <p className="mt-2 text-2xl font-semibold text-blue-400">{formatCurrency(totalCreditReceived)}</p>
             <p className="mt-1 text-xs text-white/50">
-              {customerBuylist.filter((t) => t.payment_method === "store_credit").length} transactions
+              {customerBuylist.filter((t) => t.payment_method?.toLowerCase() === "store_credit").length} transactions
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -285,20 +303,6 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
           >
             Buylist ({customerBuylist.length})
           </button>
-          <div className="ml-auto flex gap-2">
-            <button
-              onClick={handleViewAllOrders}
-              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-accent hover:text-accent"
-            >
-              View in Orders <ArrowUpRight size={14} />
-            </button>
-            <button
-              onClick={handleViewAllPreorders}
-              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:border-purple-400 hover:text-purple-400"
-            >
-              View in Preorders <ArrowUpRight size={14} />
-            </button>
-          </div>
         </div>
 
         {/* Transaction List */}
@@ -321,7 +325,12 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
               {transactions.map((txn) => (
                 <div
                   key={`${txn.type}-${txn.id}`}
-                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:bg-white/10"
+                  onClick={() => {
+                    if (txn.type === "order") handleOrderClick(txn.id);
+                    else if (txn.type === "preorder") handlePreorderClick(txn.id);
+                    else if (txn.type === "buylist") handleBuylistClick(txn.id);
+                  }}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:bg-white/10 cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -373,12 +382,12 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
                         {txn.type === "buylist" && txn.payment_method && (
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              txn.payment_method === "cash"
+                              txn.payment_method.toLowerCase() === "cash"
                                 ? "bg-green-500/20 text-green-300"
                                 : "bg-blue-500/20 text-blue-300"
                             }`}
                           >
-                            {txn.payment_method === "cash" ? "Cash" : "Store Credit"}
+                            {txn.payment_method.toLowerCase() === "cash" ? "Cash" : "Store Credit"}
                           </span>
                         )}
                       </div>
@@ -417,6 +426,278 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
           </button>
         </div>
       </div>
+
+      {/* Order Detail Modal */}
+      {selectedOrder && (
+        <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
+      )}
+
+      {/* Preorder Claim Detail Modal */}
+      {selectedPreorderClaim && (() => {
+        const preorderItem = preorderItems.find(pi => pi.id === selectedPreorderClaim.preorder_item_id);
+        const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+        const customer = customers.find(c => c.id === selectedPreorderClaim.customer_id);
+        
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+            <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-500">
+                    <Package size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Preorder #{selectedPreorderClaim.id}</h2>
+                    <p className="text-xs text-white/60">Preorder claim details</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedPreorderClaim(null)}
+                  className="rounded-full border border-white/10 p-2 text-white/60 transition hover:border-accent hover:text-accent"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 space-y-6">
+                {/* Product Info */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40 mb-2">
+                    <Package size={14} />
+                    Product
+                  </div>
+                  <p className="text-xl font-semibold text-white">
+                    {invItem?.name || `Item #${selectedPreorderClaim.preorder_item_id}`}
+                  </p>
+                  {invItem?.game_title && (
+                    <p className="text-sm text-white/60 mt-1">{invItem.game_title}</p>
+                  )}
+                  <p className="text-sm text-white/40 mt-2">
+                    Qty: {selectedPreorderClaim.quantity_requested}
+                    {selectedPreorderClaim.quantity_allocated > 0 && (
+                      <span className="ml-2 text-emerald-400">
+                        ({selectedPreorderClaim.quantity_allocated} allocated)
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Order Info Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
+                      <User size={14} />
+                      Customer
+                    </div>
+                    <p className="mt-1 text-lg font-medium text-white">
+                      {customer?.name || customerName}
+                    </p>
+                    {customer?.email && (
+                      <p className="text-sm text-white/60">{customer.email}</p>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
+                      <Calendar size={14} />
+                      Created
+                    </div>
+                    <p className="mt-1 text-lg font-medium text-white">
+                      {new Date(selectedPreorderClaim.created_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm text-white/60">
+                      {new Date(selectedPreorderClaim.created_at).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Payment Info */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40 mb-3">
+                    <CreditCard size={14} />
+                    Payment Status
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ${
+                          selectedPreorderClaim.is_paid
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : "bg-amber-500/20 text-amber-300"
+                        }`}
+                      >
+                        {selectedPreorderClaim.is_paid ? "Paid" : "Unpaid"}
+                      </span>
+                      {selectedPreorderClaim.payment_method && (
+                        <span className="ml-2 text-sm text-white/60">
+                          via {selectedPreorderClaim.payment_method.replace("_", " ")}
+                        </span>
+                      )}
+                    </div>
+                    {selectedPreorderClaim.is_paid && selectedPreorderClaim.payment_amount_cents && (
+                      <p className="text-2xl font-semibold text-emerald-400">
+                        {formatCurrency(selectedPreorderClaim.payment_amount_cents)}
+                      </p>
+                    )}
+                    {!selectedPreorderClaim.is_paid && invItem?.msrp_cents && (
+                      <p className="text-2xl font-semibold text-white/60">
+                        {formatCurrency(invItem.msrp_cents)}
+                      </p>
+                    )}
+                  </div>
+                  {selectedPreorderClaim.payment_date && (
+                    <p className="mt-2 text-sm text-white/50">
+                      Paid on {new Date(selectedPreorderClaim.payment_date).toLocaleDateString()}
+                    </p>
+                  )}
+                  {selectedPreorderClaim.payment_notes && (
+                    <p className="mt-2 text-sm text-white/40 italic">
+                      {selectedPreorderClaim.payment_notes}
+                    </p>
+                  )}
+                </div>
+
+                {/* Status */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs uppercase tracking-[0.3em] text-white/40 mb-2">Status</div>
+                  <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusColor(selectedPreorderClaim.status)}`}>
+                    {selectedPreorderClaim.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-white/10 px-6 py-4">
+                <button
+                  onClick={() => setSelectedPreorderClaim(null)}
+                  className="w-full rounded-full border border-white/10 py-2 text-sm font-medium text-white/60 transition hover:border-accent hover:text-accent"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Buylist Transaction Detail Modal */}
+      {selectedBuylistTxn && (() => {
+        const customer = customers.find(c => c.id === selectedBuylistTxn.customer_id);
+        
+        const getPaymentMethodLabel = (method: string) => {
+          switch (method.toLowerCase()) {
+            case "cash": return "Cash";
+            case "store_credit": return "Store Credit";
+            case "cashapp": return "CashApp";
+            case "venmo": return "Venmo";
+            default: return method;
+          }
+        };
+
+        const getPaymentMethodColor = (method: string) => {
+          switch (method.toLowerCase()) {
+            case "cash": return "bg-green-500/20 text-green-300";
+            case "store_credit": return "bg-blue-500/20 text-blue-300";
+            case "cashapp": return "bg-emerald-500/20 text-emerald-300";
+            case "venmo": return "bg-cyan-500/20 text-cyan-300";
+            default: return "bg-white/10 text-white/60";
+          }
+        };
+        
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+            <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-[#0a0c12]">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500">
+                    <DollarSign size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Buylist #{selectedBuylistTxn.id}</h2>
+                    <p className="text-xs text-white/60">Buylist transaction details</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedBuylistTxn(null)}
+                  className="rounded-full border border-white/10 p-2 text-white/60 transition hover:border-accent hover:text-accent"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 space-y-6">
+                {/* Amount */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center">
+                  <div className="text-xs uppercase tracking-[0.3em] text-white/40 mb-2">Amount Paid</div>
+                  <p className="text-3xl font-bold text-green-400">
+                    {formatCurrency(selectedBuylistTxn.amount_cents)}
+                  </p>
+                </div>
+
+                {/* Info Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
+                      <User size={14} />
+                      Customer
+                    </div>
+                    <p className="mt-1 text-lg font-medium text-white">
+                      {customer?.name || customerName}
+                    </p>
+                    {customer?.email && (
+                      <p className="text-sm text-white/60">{customer.email}</p>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
+                      <Calendar size={14} />
+                      Date
+                    </div>
+                    <p className="mt-1 text-lg font-medium text-white">
+                      {new Date(selectedBuylistTxn.created_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm text-white/60">
+                      {new Date(selectedBuylistTxn.created_at).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40 mb-3">
+                    <CreditCard size={14} />
+                    Payment Method
+                  </div>
+                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${getPaymentMethodColor(selectedBuylistTxn.payment_method)}`}>
+                    {getPaymentMethodLabel(selectedBuylistTxn.payment_method)}
+                  </span>
+                </div>
+
+                {/* Notes */}
+                {selectedBuylistTxn.notes && (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-xs uppercase tracking-[0.3em] text-white/40 mb-2">Notes</div>
+                    <p className="text-white/80">{selectedBuylistTxn.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-white/10 px-6 py-4">
+                <button
+                  onClick={() => setSelectedBuylistTxn(null)}
+                  className="w-full rounded-full border border-white/10 py-2 text-sm font-medium text-white/60 transition hover:border-accent hover:text-accent"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

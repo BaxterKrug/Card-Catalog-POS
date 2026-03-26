@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select, desc
+from pydantic import ConfigDict
 
 from ..auth import get_current_user, User
 from ..database import get_session as db_session
@@ -34,6 +35,8 @@ class BuylistTransactionUpdate(BaseModel):
 
 
 class BuylistTransactionRead(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    
     id: int
     customer_id: int
     amount_cents: int

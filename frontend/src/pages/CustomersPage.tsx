@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Loader2, UserPlus, Search, Trash2, ArrowRightLeft, Pencil } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCustomers } from "../hooks/useCustomers";
@@ -8,6 +9,7 @@ import EditCustomerModal from "../components/EditCustomerModal";
 import CustomerTransactionsModal from "../components/CustomerTransactionsModal";
 
 const CustomersPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: customers = [], isLoading, isError } = useCustomers();
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string } | null>(null);
@@ -18,6 +20,19 @@ const CustomersPage = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [targetCustomerId, setTargetCustomerId] = useState<number | null>(null);
   const [transferSuccess, setTransferSuccess] = useState<string | null>(null);
+
+  // Auto-open customer profile when customerId is in URL
+  useEffect(() => {
+    const customerId = searchParams.get("customerId");
+    if (customerId && customers.length > 0 && !selectedCustomer) {
+      const customer = customers.find(c => c.id === parseInt(customerId));
+      if (customer) {
+        setSelectedCustomer({ id: customer.id, name: customer.name });
+        // Clear the URL param after opening
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [searchParams, customers, selectedCustomer, setSearchParams]);
 
   const queryClient = useQueryClient();
   const deleteMutation = useMutation({

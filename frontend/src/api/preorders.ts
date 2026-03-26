@@ -9,6 +9,7 @@ export interface PreorderItem {
   preorder_quantity_allocated: number;
   quantity_cap: number | null;  // Keep for backward compatibility, always 1
   notes: string | null;
+  is_archived: boolean;  // Manually archived by user
   created_at: string;
   updated_at: string;
   inventory_item?: any; // Can expand with full InventoryItem interface if needed
@@ -36,6 +37,7 @@ export interface PreorderItemUpdate {
   release_date?: string;
   preorder_quantity?: number;
   notes?: string;
+  is_archived?: boolean;
   msrp_cents?: number;
   set_code?: string;
 }
