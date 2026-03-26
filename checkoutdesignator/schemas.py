@@ -287,6 +287,7 @@ class PreorderSetCreate(BaseModel):
     """Create multiple preorder items with shared game and release date."""
     # Shared details for all products in the set
     game_title: str
+    set_code: Optional[str] = None  # e.g., "Aetherdrift", "Foundations"
     release_date: Optional[date] = None
     category: ProductCategory = ProductCategory.SEALED
     notes: Optional[str] = None

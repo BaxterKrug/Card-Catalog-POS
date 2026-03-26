@@ -49,6 +49,7 @@ export interface PreorderSetProduct {
 
 export interface PreorderSetCreate {
   game_title: string;
+  set_code?: string;  // Set/series name (e.g., "Aetherdrift")
   release_date?: string;
   category?: string;
   notes?: string;

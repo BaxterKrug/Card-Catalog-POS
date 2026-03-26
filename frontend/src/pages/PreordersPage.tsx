@@ -36,6 +36,8 @@ const PreordersPage = () => {
   const [editClaimPaymentMethod, setEditClaimPaymentMethod] = useState<string>('cash');
   const [showPastSets, setShowPastSets] = useState(false);
   const [collapsedSets, setCollapsedSets] = useState<Set<string>>(new Set());
+  const [manuallyArchivedSets, setManuallyArchivedSets] = useState<Set<string>>(new Set());
+  const [editingSetName, setEditingSetName] = useState<{ setKey: string; currentName: string } | null>(null);
   
   const { data: preorderItems = [], isLoading: itemsLoading, isError: itemsError } = usePreorderItems();
   const { data: inventory = [] } = useInventory();
@@ -115,15 +117,17 @@ const PreordersPage = () => {
   const groupedPreorderSets = filteredItems.reduce((groups, item) => {
     const invItem = inventory.find(i => i.id === item.inventory_item_id);
     const gameTitle = invItem?.game_title || 'Unknown Game';
+    const setCode = invItem?.set_code || '';
     const releaseDate = item.release_date || 'TBA';
     const notes = item.notes || '';
     
     // Create a unique key for each set
-    const setKey = `${gameTitle}|||${releaseDate}|||${notes}`;
+    const setKey = `${gameTitle}|||${setCode}|||${releaseDate}|||${notes}`;
     
     if (!groups[setKey]) {
       groups[setKey] = {
         gameTitle,
+        setCode,
         releaseDate,
         notes,
         items: [],
@@ -132,7 +136,7 @@ const PreordersPage = () => {
     
     groups[setKey].items.push(item);
     return groups;
-  }, {} as Record<string, { gameTitle: string; releaseDate: string | null; notes: string; items: PreorderItem[] }>);
+  }, {} as Record<string, { gameTitle: string; setCode: string; releaseDate: string | null; notes: string; items: PreorderItem[] }>);
 
   // Convert to array and sort by release date
   const allPreorderSets = Object.values(groupedPreorderSets).sort((a, b) => {
@@ -142,14 +146,22 @@ const PreordersPage = () => {
     return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
   });
 
-  // Helper to determine if a set is "past" (release date passed AND all claims fulfilled)
+  // Helper to get set key for archiving
+  const getSetKey = (set: typeof allPreorderSets[0]) => 
+    `${set.gameTitle}|||${set.setCode}|||${set.releaseDate}|||${set.notes}`;
+
+  // Helper to determine if a set is "past" (release date passed AND all claims fulfilled, OR manually archived)
   const isSetPast = (set: typeof allPreorderSets[0]) => {
-    // Check if release date is more than 30 days in the past
+    // Check if manually archived
+    const setKey = getSetKey(set);
+    if (manuallyArchivedSets.has(setKey)) return true;
+
+    // Check if release date is more than 14 days in the past
     if (!set.releaseDate) return false;
     const releaseDate = new Date(set.releaseDate);
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    if (releaseDate > thirtyDaysAgo) return false;
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+    if (releaseDate > fourteenDaysAgo) return false;
     
     // Get all claims for this set
     const setClaims = allClaims.filter(claim => 
@@ -161,6 +173,20 @@ const PreordersPage = () => {
     
     // Check if all claims are fulfilled (picked up)
     return setClaims.every(claim => claim.status === 'fulfilled');
+  };
+
+  // Helper to manually archive/unarchive a set
+  const toggleArchiveSet = (set: typeof allPreorderSets[0]) => {
+    const setKey = getSetKey(set);
+    setManuallyArchivedSets(prev => {
+      const next = new Set(prev);
+      if (next.has(setKey)) {
+        next.delete(setKey);
+      } else {
+        next.add(setKey);
+      }
+      return next;
+    });
   };
 
   // Split into active and past sets
@@ -420,7 +446,7 @@ const PreordersPage = () => {
               const setPaidClaims = setClaims.filter(c => c.is_paid);
               const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
 
-              const setKey = `active-${set.gameTitle}-${set.releaseDate}`;
+              const setKey = `active-${set.gameTitle}-${set.setCode}-${set.releaseDate}`;
               const isCollapsed = collapsedSets.has(setKey);
 
               const toggleSetCollapse = () => {
@@ -450,6 +476,11 @@ const PreordersPage = () => {
                       <div className="flex-1">
                         <div className="flex items-center gap-3">
                           <h3 className="text-xl font-semibold text-white">{set.gameTitle}</h3>
+                          {set.setCode && (
+                            <span className="rounded-full bg-purple-500/20 px-3 py-1 text-xs font-medium text-purple-300">
+                              {set.setCode}
+                            </span>
+                          )}
                           <span className="rounded-full bg-accent/20 px-3 py-1 text-xs font-medium text-accent">
                             {set.items.length} {set.items.length === 1 ? 'Product' : 'Products'}
                           </span>
@@ -466,8 +497,36 @@ const PreordersPage = () => {
                       </div>
                     </div>
                     
-                    {/* Set Summary Stats */}
-                    <div className="flex gap-3">
+                    {/* Set Actions and Summary Stats */}
+                    <div className="flex items-center gap-3">
+                      {/* Archive Button */}
+                      {isManagement && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSetName({ setKey: getSetKey(set), currentName: set.setCode || '' });
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-white transition-colors"
+                            title="Edit set name"
+                          >
+                            <Edit2 size={12} />
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleArchiveSet(set);
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-amber-300 transition-colors"
+                            title="Archive this set"
+                          >
+                            <Archive size={12} />
+                            Archive
+                          </button>
+                        </div>
+                      )}
+                      {/* Stats */}
                       <div className="rounded-lg bg-white/5 px-4 py-2 text-center">
                         <p className="text-xs text-white/40">Total Stock</p>
                         <p className="mt-1 text-lg font-semibold text-white">{setTotalStock}</p>
@@ -595,7 +654,7 @@ const PreordersPage = () => {
               </span>
             </div>
             <span className="text-xs text-white/40">
-              Released 30+ days ago with all orders fulfilled
+              Released 14+ days ago with all orders fulfilled, or manually archived
             </span>
           </button>
 
@@ -613,8 +672,9 @@ const PreordersPage = () => {
                 );
                 const setPaidClaims = setClaims.filter(c => c.is_paid);
                 const setUnpaidClaims = setClaims.filter(c => !c.is_paid);
-                const setKey = `past-${set.gameTitle}-${set.releaseDate}`;
+                const setKey = `past-${set.gameTitle}-${set.setCode}-${set.releaseDate}`;
                 const isCollapsed = collapsedSets.has(setKey);
+                const isManuallyArchived = manuallyArchivedSets.has(getSetKey(set));
 
                 const toggleSetCollapse = () => {
                   setCollapsedSets(prev => {
@@ -643,11 +703,16 @@ const PreordersPage = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-3">
                             <h3 className="text-xl font-semibold text-white">{set.gameTitle}</h3>
+                            {set.setCode && (
+                              <span className="rounded-full bg-purple-500/20 px-3 py-1 text-xs font-medium text-purple-300/70">
+                                {set.setCode}
+                              </span>
+                            )}
                             <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/60">
                               {set.items.length} {set.items.length === 1 ? 'Product' : 'Products'}
                             </span>
                             <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-300">
-                              Completed
+                              {isManuallyArchived ? 'Archived' : 'Completed'}
                             </span>
                           </div>
                           <div className="mt-2 flex items-center gap-3 text-sm text-white/60">
@@ -662,8 +727,21 @@ const PreordersPage = () => {
                         </div>
                       </div>
                       
-                      {/* Set Summary Stats - Always visible */}
-                      <div className="flex gap-3">
+                      {/* Set Summary Stats and Unarchive - Always visible */}
+                      <div className="flex items-center gap-3">
+                        {isManuallyArchived && isManagement && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleArchiveSet(set);
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-emerald-300 transition-colors"
+                            title="Restore to active"
+                          >
+                            <Archive size={12} />
+                            Unarchive
+                          </button>
+                        )}
                         <div className="rounded-lg bg-white/5 px-4 py-2 text-center">
                           <p className="text-xs text-white/40">Claims</p>
                           <p className="mt-1 text-lg font-semibold text-white/70">{setClaims.length}</p>
@@ -1935,6 +2013,7 @@ const PreordersPage = () => {
                 
                 // Collect shared details
                 const gameTitle = formData.get('game_title') as string;
+                const setCode = formData.get('set_code') as string || undefined;
                 const releaseDate = formData.get('release_date') as string || undefined;
                 const notes = formData.get('notes') as string || undefined;
                 
@@ -1954,6 +2033,7 @@ const PreordersPage = () => {
                 
                 createSetMutation.mutate({
                   game_title: gameTitle,
+                  set_code: setCode,
                   release_date: releaseDate,
                   category: 'sealed',
                   notes: notes,
@@ -1968,15 +2048,26 @@ const PreordersPage = () => {
               <div className="rounded-lg border border-white/20 bg-white/5 p-4">
                 <h4 className="text-sm font-semibold text-white mb-3">Shared Details</h4>
                 <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm text-white/60">Game/System</label>
-                    <input
-                      type="text"
-                      name="game_title"
-                      required
-                      placeholder="e.g., Magic: The Gathering"
-                      className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-white/60">Game/System</label>
+                      <input
+                        type="text"
+                        name="game_title"
+                        required
+                        placeholder="e.g., Magic: The Gathering"
+                        className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-white/60">Set/Series Name</label>
+                      <input
+                        type="text"
+                        name="set_code"
+                        placeholder="e.g., Aetherdrift, Foundations"
+                        className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -2738,6 +2829,65 @@ const PreordersPage = () => {
             setShowNewCustomerModal(false);
           }}
         />
+      )}
+
+      {/* Edit Set Name Modal */}
+      {editingSetName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#1a1a1a] p-6">
+            <h3 className="text-xl font-semibold text-white">Edit Set Name</h3>
+            <p className="mt-1 text-sm text-white/60">Update the set/series name for all products in this set</p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const newSetCode = formData.get('set_code') as string;
+                
+                // Find all items in this set and update them
+                const setToEdit = allPreorderSets.find(set => getSetKey(set) === editingSetName.setKey);
+                if (setToEdit) {
+                  // Update all items in the set
+                  for (const item of setToEdit.items) {
+                    await updateItemMutation.mutateAsync({
+                      itemId: item.id,
+                      update: { set_code: newSetCode || undefined }
+                    });
+                  }
+                }
+                setEditingSetName(null);
+              }}
+              className="mt-4 space-y-4"
+            >
+              <div>
+                <label className="block text-sm text-white/60">Set/Series Name</label>
+                <input
+                  type="text"
+                  name="set_code"
+                  defaultValue={editingSetName.currentName}
+                  placeholder="e.g., Aetherdrift, Foundations"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white outline-none focus:border-white/20"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingSetName(null)}
+                  className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-white/80 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateItemMutation.isPending}
+                  className="flex-1 rounded-lg bg-accent px-4 py-2 text-white hover:bg-accent/80 disabled:opacity-50"
+                >
+                  {updateItemMutation.isPending ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

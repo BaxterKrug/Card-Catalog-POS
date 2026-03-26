@@ -91,6 +91,7 @@ def create_preorder_set(session: Session, payload: PreorderSetCreate) -> list[Pr
             sku=product.sku,
             name=product.product_name,
             game_title=payload.game_title,  # Shared
+            set_code=payload.set_code,  # Shared - set/series name
             category=payload.category,  # Shared
             msrp_cents=product.msrp_cents,
             unit_price_cents=product.msrp_cents or 0,
