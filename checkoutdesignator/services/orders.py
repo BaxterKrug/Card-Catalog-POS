@@ -227,7 +227,7 @@ def add_order_payment(session: Session, order_id: int, payload: OrderPaymentCrea
         # Get the active cash register session
         statement = select(CashRegisterSession).where(
             CashRegisterSession.is_active == True
-        ).order_by(CashRegisterSession.opened_at.desc())
+        ).order_by(getattr(CashRegisterSession, "opened_at").desc())
         active_session = session.exec(statement).first()
         
         if active_session:
@@ -320,11 +320,12 @@ def refund_order(session: Session, order_id: int) -> Order:
         cash_session_stmt = (
             select(CashRegisterSession)
             .where(CashRegisterSession.is_active == True)
-            .order_by(CashRegisterSession.opened_at.desc())
+            .order_by(getattr(CashRegisterSession, "opened_at").desc())
         )
         cash_session = session.exec(cash_session_stmt).first()
         
         if cash_session:
+            assert cash_session.id is not None, "Session ID should exist for persisted record"
             # Sum up all cash payments for this order
             total_cash_refund = sum(payment.amount_cents for payment in cash_payments)
             

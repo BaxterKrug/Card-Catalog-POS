@@ -285,11 +285,12 @@ def cancel_preorder_claim(session: Session, claim_id: int) -> PreorderClaim:
         stmt = (
             select(CashRegisterSession)
             .where(CashRegisterSession.is_active == True)
-            .order_by(CashRegisterSession.opened_at.desc())
+            .order_by(getattr(CashRegisterSession, "opened_at").desc())
         )
         cash_session = session.exec(stmt).first()
         
         if cash_session and claim.payment_amount_cents:
+            assert cash_session.id is not None, "Session ID should exist for persisted record"
             # Create an ADJUSTMENT transaction (negative amount subtracts from register)
             refund_txn = CashRegisterTransaction(
                 session_id=cash_session.id,
@@ -383,7 +384,7 @@ def record_preorder_payment(session: Session, claim_id: int, payload: PreorderCl
         # Get the active cash register session
         statement = select(CashRegisterSession).where(
             CashRegisterSession.is_active == True
-        ).order_by(CashRegisterSession.opened_at.desc())
+        ).order_by(getattr(CashRegisterSession, "opened_at").desc())
         active_session = session.exec(statement).first()
         
         if active_session:
