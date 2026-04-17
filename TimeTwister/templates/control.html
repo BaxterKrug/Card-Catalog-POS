@@ -22,7 +22,11 @@
         text-decoration: none;
         border-radius: 5px;
         font-weight: bold;
+        margin-left: 8px;
     }
+    .header-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .display-links { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .display-links span { color: #9ca3af; font-size: 0.9em; }
     .event-configs { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
     .event-card {
       border: 1px solid #1f2937;
@@ -144,13 +148,85 @@
       accent-color: #38bdf8;
       cursor: pointer;
     }
+    .display-management {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 12px;
+      padding: 12px 16px;
+      min-width: 260px;
+      box-shadow: 0 12px 30px rgba(2, 6, 23, 0.35);
+    }
+    .display-management h4 {
+      margin: 0 0 10px 0;
+      color: #bfdbfe;
+      font-size: 0.9em;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .display-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .display-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 999px;
+      font-size: 0.9em;
+    }
+    .display-chip input {
+      background: transparent;
+      border: none;
+      color: #e5e7eb;
+      font-size: 0.9em;
+      width: 80px;
+      padding: 2px 4px;
+    }
+    .display-chip input:focus {
+      outline: 1px solid #38bdf8;
+      border-radius: 4px;
+    }
+    .display-chip .remove-display {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      cursor: pointer;
+      padding: 0 4px;
+      font-size: 1.1em;
+      margin: 0;
+    }
+    .display-chip .remove-display:hover { color: #f87171; }
+    .add-display-btn {
+      padding: 6px 12px;
+      font-size: 0.85em;
+    }
+    select.display-select {
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      color: #e5e7eb;
+      padding: 8px 10px;
+      font-size: 1em;
+      width: 100%;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
         <h1>Event Control Panel</h1>
-        <a href="/display" target="_blank">Go to Display</a>
+        <div class="header-links">
+            <div id="display-links" class="display-links">
+                <span>Displays:</span>
+                <a href="/display" target="_blank">All</a>
+            </div>
+        </div>
     </div>
   <div class="global-controls">
     <div class="volume-control">
@@ -160,6 +236,11 @@
       </div>
       <input type="range" min="0" max="100" step="1" id="volume-slider">
     </div>
+    <div class="display-management">
+      <h4>Manage Displays</h4>
+      <div id="display-list" class="display-list"></div>
+      <button class="add-display-btn" onclick="addDisplay()">+ Add Display</button>
+    </div>
   </div>
     <div id="event-configs" class="event-configs"></div>
     <button id="add-event" onclick="addEvent()">+ Add Event</button>
@@ -167,7 +248,7 @@
 
 <script>
 const DEFAULT_VOLUME = 0.75;
-let state = { timers: {}, settings: { buzzer_volume: DEFAULT_VOLUME } };
+let state = { timers: {}, displays: { "1": { name: "Display 1" } }, settings: { buzzer_volume: DEFAULT_VOLUME } };
 let isAdjustingVolume = false;
 const PRESETS = [
   { label: 'Pokemon', minutes: 50 },
@@ -212,6 +293,7 @@ function fetchState() {
     .then(data => {
       state = data || {};
       state.timers = state.timers || {};
+      state.displays = state.displays || { "1": { name: "Display 1" } };
       const volume = state.settings && typeof state.settings.buzzer_volume === 'number'
         ? state.settings.buzzer_volume
         : DEFAULT_VOLUME;
@@ -224,6 +306,8 @@ function render() {
   const container = document.getElementById('event-configs');
   const ids = Object.keys(state.timers);
   syncVolumeControls();
+  renderDisplays();
+  renderDisplayLinks();
 
   if (ids.length === 0) {
     addEvent();
@@ -276,6 +360,10 @@ function createEventCard(id) {
     <div class="row">
       <label>Event Name:</label>
       <input type="text" id="label_${id}" placeholder="Event name" onfocus="stopFetching()" onblur="updateLabel(${id}); startFetching();">
+    </div>
+    <div class="row">
+      <label>Assign to Display:</label>
+      <select class="display-select" id="display_${id}" onchange="updateTimerDisplay(${id}, this.value)"></select>
     </div>
     <div class="row feature-toggle">
       <span class="feature-label">Features:</span>
@@ -335,6 +423,7 @@ function createEventCard(id) {
   card._refs = {
     header: card.querySelector('[data-role="header"]'),
     labelInput: card.querySelector(`#label_${id}`),
+    displaySelect: card.querySelector(`#display_${id}`),
     featureButtons,
     timerControls: card.querySelector('[data-role="timer-controls"]'),
     timerPresets: card.querySelector('[data-role="timer-presets"]'),
@@ -364,6 +453,23 @@ function updateEventCard(card, timer, id) {
 
   if (document.activeElement !== refs.labelInput) {
     refs.labelInput.value = labelValue;
+  }
+
+  // Update display selector
+  if (refs.displaySelect && document.activeElement !== refs.displaySelect) {
+    const currentDisplay = timer.display_id || '1';
+    const displayIds = Object.keys(state.displays).sort((a, b) => Number(a) - Number(b));
+    const currentOptions = Array.from(refs.displaySelect.options).map(o => o.value);
+    const needsRebuild = displayIds.length !== currentOptions.length || 
+      !displayIds.every((d, i) => currentOptions[i] === d);
+    
+    if (needsRebuild) {
+      refs.displaySelect.innerHTML = displayIds.map(did => {
+        const display = state.displays[did];
+        return `<option value="${did}">${display.name || 'Display ' + did}</option>`;
+      }).join('');
+    }
+    refs.displaySelect.value = currentDisplay;
   }
 
   updateFeatureButton(refs.featureButtons.timer, features.timer, 'Timer');
@@ -550,6 +656,61 @@ function clearImage(id) {
     .then(r => r.json())
     .then(() => fetchState())
     .finally(() => startFetching());
+}
+
+function updateTimerDisplay(id, displayId) {
+  post('/api/timer/' + id + '/display', { display_id: displayId });
+}
+
+function renderDisplays() {
+  const container = document.getElementById('display-list');
+  if (!container) return;
+  
+  const displayIds = Object.keys(state.displays).sort((a, b) => Number(a) - Number(b));
+  const canRemove = displayIds.length > 1;
+  
+  container.innerHTML = displayIds.map(did => {
+    const display = state.displays[did];
+    const removeBtn = canRemove 
+      ? `<button class="remove-display" onclick="removeDisplay('${did}')" title="Remove display">&times;</button>` 
+      : '';
+    return `<div class="display-chip">
+      <input type="text" value="${display.name || 'Display ' + did}" 
+        onfocus="stopFetching()" 
+        onblur="renameDisplay('${did}', this.value); startFetching();"
+        onkeydown="if(event.key==='Enter'){this.blur();}">
+      ${removeBtn}
+    </div>`;
+  }).join('');
+}
+
+function renderDisplayLinks() {
+  const container = document.getElementById('display-links');
+  if (!container) return;
+  
+  const displayIds = Object.keys(state.displays).sort((a, b) => Number(a) - Number(b));
+  
+  container.innerHTML = `
+    <span>Displays:</span>
+    <a href="/display" target="_blank">All</a>
+    ${displayIds.map(did => {
+      const display = state.displays[did];
+      return `<a href="/display?display=${did}" target="_blank">${display.name || 'Display ' + did}</a>`;
+    }).join('')}
+  `;
+}
+
+function addDisplay() {
+  post('/api/displays/add');
+}
+
+function removeDisplay(did) {
+  if (!confirm('Remove this display? Events on this display will be moved to Display 1.')) return;
+  post('/api/displays/' + did + '/remove');
+}
+
+function renameDisplay(did, name) {
+  post('/api/displays/' + did + '/name', { name });
 }
 
 function getBuzzerVolume() {

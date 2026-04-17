@@ -26,6 +26,9 @@ npm run dev -- --host 0.0.0.0 --port 5173 &
 FRONTEND_PID=$!
 cd ..
 
+# Wait for servers to be ready
+sleep 3
+
 echo ""
 echo "✅ All servers started!"
 echo ""
@@ -33,6 +36,18 @@ echo "Backend:     http://localhost:8000"
 echo "API Docs:    http://localhost:8000/api/docs"
 echo "TimeTwister: http://localhost:8001"
 echo "Frontend:    http://localhost:5173"
+echo ""
+
+# Open browsers (works on Linux and Mac)
+echo "🌐 Opening browsers..."
+if command -v xdg-open &> /dev/null; then
+    xdg-open "http://localhost:5173" 2>/dev/null &
+    xdg-open "http://localhost:8001" 2>/dev/null &
+elif command -v open &> /dev/null; then
+    open "http://localhost:5173"
+    open "http://localhost:8001"
+fi
+
 echo ""
 echo "Press Ctrl+C to stop all servers."
 echo ""

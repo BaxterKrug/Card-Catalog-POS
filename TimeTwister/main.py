@@ -24,6 +24,9 @@ DEFAULT_BUZZER_VOLUME = 0.75
 
 state = {
     "timers": {},
+    "displays": {
+        "1": {"name": "Display 1"},
+    },
     "buzzer": {
         "sequence": 0,
         "timer_id": None,
@@ -113,8 +116,12 @@ def display_page():
 
 @app.route("/api/state")
 def api_state():
+    display_filter = request.args.get("display")
     timers_out = {}
     for tid, t in state["timers"].items():
+        # Filter by display if specified
+        if display_filter and t.get("display_id", "1") != display_filter:
+            continue
         features = ensure_features(t).copy()
         ensure_timer_meta(t)
         remaining = get_remaining(t)
@@ -137,9 +144,11 @@ def api_state():
             "long_duration": remaining >= 3600,
             "features": features,
             "image_url": t.get("image_url"),
+            "display_id": t.get("display_id", "1"),
         }
     return jsonify({
         "timers": timers_out,
+        "displays": state.get("displays", {"1": {"name": "Display 1"}}),
         "buzzer": state.get("buzzer", {}),
         "settings": state.get("settings", {"buzzer_volume": DEFAULT_BUZZER_VOLUME}),
     })
@@ -171,6 +180,7 @@ def add_timer():
             "image_filename": None,
             "image_url": None,
             "auto_buzzer_fired": False,
+            "display_id": "1",
         }
     return jsonify({"ok": True})
 
@@ -179,6 +189,55 @@ def remove_timer(tid):
     if tid in state["timers"]:
         clear_timer_image(state["timers"][tid])
         del state["timers"][tid]
+    return jsonify({"ok": True})
+
+
+@app.route("/api/timer/<tid>/display", methods=["POST"])
+def api_timer_display(tid):
+    if tid not in state["timers"]:
+        return jsonify({"error": "Timer not found"}), 404
+    data = request.get_json(force=True)
+    display_id = str(data.get("display_id", "1"))
+    if display_id not in state.get("displays", {}):
+        return jsonify({"error": "Display not found"}), 404
+    state["timers"][tid]["display_id"] = display_id
+    return jsonify({"ok": True})
+
+
+@app.route("/api/displays/add", methods=["POST"])
+def add_display():
+    displays = state.setdefault("displays", {"1": {"name": "Display 1"}})
+    if len(displays) >= 10:
+        return jsonify({"error": "Maximum 10 displays allowed"}), 400
+    new_id = str(max([int(k) for k in displays.keys()] + [0]) + 1)
+    displays[new_id] = {"name": f"Display {new_id}"}
+    return jsonify({"ok": True, "display_id": new_id})
+
+
+@app.route("/api/displays/<did>/remove", methods=["POST"])
+def remove_display(did):
+    displays = state.get("displays", {})
+    if did not in displays:
+        return jsonify({"error": "Display not found"}), 404
+    if len(displays) <= 1:
+        return jsonify({"error": "Cannot remove the last display"}), 400
+    # Move timers from this display to display 1
+    for timer in state["timers"].values():
+        if timer.get("display_id") == did:
+            timer["display_id"] = "1"
+    del displays[did]
+    return jsonify({"ok": True})
+
+
+@app.route("/api/displays/<did>/name", methods=["POST"])
+def rename_display(did):
+    displays = state.get("displays", {})
+    if did not in displays:
+        return jsonify({"error": "Display not found"}), 404
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    if name:
+        displays[did]["name"] = name[:50]
     return jsonify({"ok": True})
 
 

@@ -22,6 +22,9 @@ Start-Sleep -Seconds 1
 Write-Host "Starting frontend dev server (http://localhost:5173)..." -ForegroundColor Green
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PSScriptRoot\frontend'; npm run dev -- --host 0.0.0.0 --port 5173"
 
+# Wait for servers to be ready
+Start-Sleep -Seconds 3
+
 Write-Host ""
 Write-Host "All servers started in separate windows!" -ForegroundColor Green
 Write-Host ""
@@ -29,5 +32,12 @@ Write-Host "Backend:     http://localhost:8000" -ForegroundColor Yellow
 Write-Host "API Docs:    http://localhost:8000/api/docs" -ForegroundColor Yellow
 Write-Host "TimeTwister: http://localhost:8001" -ForegroundColor Yellow
 Write-Host "Frontend:    http://localhost:5173" -ForegroundColor Yellow
+Write-Host ""
+
+# Open browsers
+Write-Host "Opening browsers..." -ForegroundColor Cyan
+Start-Process "http://localhost:5173"
+Start-Process "http://localhost:8001"
+
 Write-Host ""
 Write-Host "Close the server windows to stop the servers." -ForegroundColor Cyan

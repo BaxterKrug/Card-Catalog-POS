@@ -134,6 +134,26 @@
     .events-grid[data-count="3"] .image {
       max-height: 30vh;
     }
+    /* Timer-off mode: maximize text size */
+    .event-display.timer-off {
+      justify-content: center;
+    }
+    .event-display.timer-off .event-name {
+      flex-grow: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-height: 85%;
+      text-align: center;
+    }
+    .event-display.timer-off .event-name span {
+      display: inline-block;
+      line-height: 1.1;
+    }
+    .event-display.timer-off .message {
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -248,8 +268,83 @@ function applyFit(el) {
   }
 }
 
+function applyMaxFit(el, container, options = {}) {
+  if (!el || !container || el.classList.contains('hidden')) {
+    return;
+  }
+  
+  // Get text from data attribute or element content
+  const text = container.dataset.label || el.textContent || '';
+  if (!text.trim()) {
+    return;
+  }
+  
+  // Wrap text in span if not already wrapped
+  let span = el.querySelector('span');
+  if (!span) {
+    span = document.createElement('span');
+    el.textContent = '';
+    el.appendChild(span);
+  }
+  span.textContent = text;
+  
+  const paddingFactor = options.paddingFactor || 0.85;
+  // Use the nameEl's own computed dimensions for available space
+  const elRect = el.getBoundingClientRect();
+  const availableWidth = elRect.width * paddingFactor;
+  const availableHeight = elRect.height * paddingFactor;
+  
+  if (availableWidth <= 0 || availableHeight <= 0) {
+    return;
+  }
+  
+  // Set span styles for measurement - allow natural word wrapping
+  span.style.display = 'inline-block';
+  span.style.maxWidth = availableWidth + 'px';
+  span.style.fontSize = '';
+  span.style.lineHeight = '1.1';
+  span.style.wordBreak = 'keep-all';
+  span.style.overflowWrap = 'normal';
+  span.style.whiteSpace = 'normal';
+  
+  // Binary search for optimal font size
+  let minSize = 12;
+  let maxSize = Math.min(availableWidth, availableHeight);
+  let bestSize = minSize;
+  
+  for (let i = 0; i < 20; i++) {
+    const testSize = (minSize + maxSize) / 2;
+    span.style.fontSize = testSize + 'px';
+    
+    // Check if text fits: scrollWidth > clientWidth means horizontal overflow
+    const spanRect = span.getBoundingClientRect();
+    const hasHorizontalOverflow = span.scrollWidth > span.clientWidth + 1;
+    const fitsHeight = spanRect.height <= availableHeight;
+    const fits = !hasHorizontalOverflow && fitsHeight;
+    
+    if (fits) {
+      bestSize = testSize;
+      minSize = testSize;
+    } else {
+      maxSize = testSize;
+    }
+    
+    // Stop if we're close enough
+    if (maxSize - minSize < 1) break;
+  }
+  
+  span.style.fontSize = Math.floor(bestSize) + 'px';
+}
+
+function getDisplayId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('display') || params.get('id') || null;
+}
+
 function fetchState() {
-  fetch('/api/state')
+  const displayId = getDisplayId();
+  const url = displayId ? `/api/state?display=${encodeURIComponent(displayId)}` : '/api/state';
+  fetch(url)
     .then(r => r.json())
     .then(data => {
       renderTimers(data.timers || {});
@@ -279,7 +374,9 @@ function renderTimers(timers) {
     grid.innerHTML = '';
     const empty = document.createElement('div');
     empty.className = 'event-display';
-    empty.innerHTML = '<div class="event-name">No events configured</div>';
+    const displayId = getDisplayId();
+    const displayText = displayId ? `No events on Display ${displayId}` : 'No events configured';
+    empty.innerHTML = `<div class="event-name">${displayText}</div>`;
     grid.appendChild(empty);
     return;
   }
@@ -353,22 +450,31 @@ function updateCard(card, timer) {
   const messageEl = card.querySelector('.message');
   const imageEl = card.querySelector('.image');
 
-  nameEl.textContent = timer.label || '';
-  scheduleFit(card, nameEl, { paddingFactor: 0.88, minScale: 0.6 });
+  // Store the label for use by applyMaxFit
+  card.dataset.label = timer.label || '';
 
   if (features.timer) {
+    // Timer is on - use regular text display
+    nameEl.textContent = timer.label || '';
     timeEl.textContent = timer.display_remaining || '';
     const shouldShrink = Boolean(timer.long_duration && currentTimerCount > 1);
     timeEl.classList.toggle('long-duration', shouldShrink);
     timeEl.classList.toggle('overtime', Boolean(timer.overtime));
     timeEl.classList.remove('hidden');
+    card.classList.remove('timer-off');
     scheduleFit(card, timeEl, { paddingFactor: 0.92, minScale: 0.5 });
+    scheduleFit(card, nameEl, { paddingFactor: 0.88, minScale: 0.6 });
   } else {
     timeEl.textContent = '';
     timeEl.classList.add('hidden');
     timeEl.classList.remove('long-duration');
     timeEl.classList.remove('overtime');
     timeEl.style.fontSize = '';
+    card.classList.add('timer-off');
+    // Use requestAnimationFrame to ensure layout is computed before fitting
+    requestAnimationFrame(() => {
+      applyMaxFit(nameEl, card, { paddingFactor: 0.85 });
+    });
   }
 
   if (features.message) {
@@ -396,6 +502,21 @@ function updateCard(card, timer) {
     imageEl.style.display = 'none';
   }
 }
+
+// Recalculate text sizes on window resize
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    const grid = document.getElementById('events-grid');
+    grid.querySelectorAll('.event-display.timer-off').forEach(card => {
+      const nameEl = card.querySelector('.event-name');
+      if (nameEl) {
+        applyMaxFit(nameEl, card, { paddingFactor: 0.85 });
+      }
+    });
+  }, 100);
+});
 
 setInterval(fetchState, 1000);
 fetchState();
