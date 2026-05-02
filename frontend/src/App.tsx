@@ -55,7 +55,7 @@ function App() {
         <Route 
           path="/inventory" 
           element={
-            <ProtectedRoute allowedRoles={["owner", "manager"]}>
+            <ProtectedRoute allowedRoles={["owner", "manager", "employee"]}>
               <InventoryPage />
             </ProtectedRoute>
           } 

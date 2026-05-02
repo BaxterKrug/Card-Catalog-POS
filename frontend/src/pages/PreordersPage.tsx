@@ -1882,7 +1882,7 @@ const PreordersPage = () => {
                           ? 'text-emerald-200'
                           : 'text-white/60'
                       }`}>
-                        Store Credit Available
+                        Store Credit Available (Beta - Do Not Use)
                       </span>
                     </div>
                     <span className={`text-lg font-bold ${

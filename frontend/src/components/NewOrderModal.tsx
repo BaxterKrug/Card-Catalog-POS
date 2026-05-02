@@ -7,6 +7,7 @@ import { useInventory } from "../hooks/useInventory";
 import { getStoreCreditBalance } from "../api/storeCredit";
 import BarcodeScanner from "./BarcodeScanner";
 import NewCustomerModal from "./NewCustomerModal";
+import { useBarcodeScanner } from "../hooks/useBarcodeScanner";
 
 interface NewOrderModalProps {
   onClose: () => void;
@@ -108,6 +109,17 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cash-register"] });
     },
+  });
+
+  // USB Barcode Scanner integration
+  // This detects when a USB barcode scanner types a barcode and presses Enter
+  useBarcodeScanner({
+    onScan: (barcode) => {
+      console.log("USB Barcode detected:", barcode);
+      handleBarcodeScanned(barcode);
+    },
+    enabled: !showScanner && !showCheckout, // Only enabled when camera scanner and checkout are closed
+    minLength: 3,
   });
 
   const filteredInventory = inventory.filter(
@@ -356,7 +368,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     if (method === "store_credit") {
       const availableCredit = storeCreditBalance?.balance_cents || 0;
       if (availableCredit === 0) {
-        setError("No store credit available");
+        setError("This feature is in Beta, Do Not Use - No store credit available");
         return;
       }
       // Use the lesser of remaining balance or available credit
@@ -431,19 +443,24 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
     const inventoryItem = inventory.find((item) => item.sku === barcode);
     if (!inventoryItem) {
       setError(`No inventory item found with SKU: ${barcode}`);
-      setShowScanner(false);
+      // Only close camera scanner if it's open
+      if (showScanner) setShowScanner(false);
       return;
     }
     
     // Check if item has available stock
     if (inventoryItem.available_quantity <= 0) {
       setError(`${inventoryItem.name} (${barcode}) is out of stock`);
-      setShowScanner(false);
+      // Only close camera scanner if it's open
+      if (showScanner) setShowScanner(false);
       return;
     }
     
+    // Clear any previous errors
+    setError(null);
     addToCart(inventoryItem.id);
-    setShowScanner(false);
+    // Only close camera scanner if it's open
+    if (showScanner) setShowScanner(false);
   };
 
   return (
@@ -581,7 +598,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                           ? 'text-emerald-200'
                           : 'text-white/60'
                       }`}>
-                        Store Credit Available
+                        Store Credit Available (Beta - Do Not Use)
                       </span>
                     </div>
                     <span className={`text-xl font-bold ${
@@ -598,9 +615,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
               {/* Product Search */}
               <div>
                 <label className="flex flex-col gap-2 text-sm">
-                  <span className="text-xs uppercase tracking-[0.3em] text-white/40">
-                    Add Products
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-[0.3em] text-white/40">
+                      Add Products
+                    </span>
+                    <div className="flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1">
+                      <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-400"></div>
+                      <span className="text-xs font-medium text-emerald-300">USB Scanner Ready</span>
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Search
@@ -613,6 +636,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         onFocus={() => setShowProductList(true)}
                         placeholder="Search by SKU or name..."
+                        data-barcode-enabled="true"
                         className="w-full rounded-2xl border border-white/10 bg-[#080b12] py-3 pl-12 pr-4 text-white placeholder:text-white/30 focus:border-accent focus:outline-none"
                       />
                     </div>
@@ -628,7 +652,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                       type="button"
                       onClick={() => setShowScanner(true)}
                       className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/80 hover:border-accent hover:text-accent"
-                      title="Scan barcode"
+                      title="Camera barcode scanner (USB scanner is always active)"
                     >
                       <ScanLine size={18} />
                     </button>

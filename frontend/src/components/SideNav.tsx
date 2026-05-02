@@ -6,7 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 
 const allLinks = [
   { to: "/", label: "Dashboard", icon: Home, roles: ["owner", "manager"] },
-  { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["owner", "manager"] },
+  { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["owner", "manager", "employee"] },
   { to: "/orders", label: "Orders", icon: ShoppingCart, roles: ["owner", "manager", "employee"] },
   { to: "/preorders", label: "Preorders", icon: Sparkles, roles: ["owner", "manager", "employee"] },
   { to: "/customers", label: "Customers", icon: Users, roles: ["owner", "manager", "employee"] },
