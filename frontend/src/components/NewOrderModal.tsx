@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, UserPlus, CreditCard, DollarSign, Sparkles, Calendar } from "lucide-react";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { X, Plus, Trash2, ShoppingCart, Search, ScanLine, ChevronDown, UserPlus, CreditCard, DollarSign, Sparkles, Calendar, Wallet } from "lucide-react";
 import { createOrder, addOrderItem, submitOrder, addOrderPayment, type OrderItemCreateInput, type DiscountType, type PaymentMethod } from "../api/orders";
 import { useCustomers } from "../hooks/useCustomers";
 import { useInventory } from "../hooks/useInventory";
+import { getStoreCreditBalance } from "../api/storeCredit";
 import BarcodeScanner from "./BarcodeScanner";
 import NewCustomerModal from "./NewCustomerModal";
 
@@ -50,6 +51,13 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   // Find the Walk-in Customer (ID: 1) or use the first customer
   const defaultCustomer = customers.find(c => c.name === "Walk-in Customer") || customers[0];
   
+  // Fetch customer's store credit balance
+  const { data: storeCreditBalance } = useQuery({
+    queryKey: ["store-credit-balance", selectedCustomerId],
+    queryFn: () => getStoreCreditBalance(selectedCustomerId!),
+    enabled: !!selectedCustomerId && selectedCustomerId > 0,
+  });
+
   // Set default customer on mount if not already selected
   useEffect(() => {
     if (selectedCustomerId === null && defaultCustomer) {
@@ -315,6 +323,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
 
     const amountCents = Math.round(amount * 100);
     
+    // Validate store credit balance
+    if (selectedPaymentMethod === "store_credit") {
+      const availableCredit = storeCreditBalance?.balance_cents || 0;
+      if (amountCents > availableCredit) {
+        setError(`Insufficient store credit. Available: $${(availableCredit / 100).toFixed(2)}`);
+        return;
+      }
+    }
+    
     // Only cash can exceed remaining (customer paying with larger bill)
     const isCash = selectedPaymentMethod === "cash";
     if (!isCash && amountCents > remainingCents) {
@@ -335,8 +352,21 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
   };
 
   const handleQuickPay = (method: PaymentMethod) => {
-    setSelectedPaymentMethod(method);
-    setPaymentAmount((remainingCents / 100).toFixed(2));
+    // For store credit, validate balance first
+    if (method === "store_credit") {
+      const availableCredit = storeCreditBalance?.balance_cents || 0;
+      if (availableCredit === 0) {
+        setError("No store credit available");
+        return;
+      }
+      // Use the lesser of remaining balance or available credit
+      const paymentAmount = Math.min(remainingCents, availableCredit);
+      setSelectedPaymentMethod(method);
+      setPaymentAmount((paymentAmount / 100).toFixed(2));
+    } else {
+      setSelectedPaymentMethod(method);
+      setPaymentAmount((remainingCents / 100).toFixed(2));
+    }
   };
 
   const handleCompleteOrder = async () => {
@@ -531,6 +561,39 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                   )}
                 </label>
               </div>
+
+              {/* Store Credit Balance Display */}
+              {selectedCustomerId && selectedCustomerId > 0 && (
+                <div className={`rounded-2xl border p-4 ${
+                  storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : 'border-white/10 bg-white/5'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wallet size={20} className={
+                        storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0
+                          ? 'text-emerald-400'
+                          : 'text-white/40'
+                      } />
+                      <span className={`text-sm font-medium ${
+                        storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0
+                          ? 'text-emerald-200'
+                          : 'text-white/60'
+                      }`}>
+                        Store Credit Available
+                      </span>
+                    </div>
+                    <span className={`text-xl font-bold ${
+                      storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0
+                        ? 'text-emerald-400'
+                        : 'text-white/40'
+                    }`}>
+                      ${((storeCreditBalance?.balance_cents || 0) / 100).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Product Search */}
               <div>
@@ -911,7 +974,7 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                     )}
 
                     {/* Quick Pay Buttons */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className={`grid gap-2 ${storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       <button
                         onClick={() => handleQuickPay("cash")}
                         className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white hover:border-accent hover:bg-accent/10"
@@ -926,6 +989,15 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                         <CreditCard size={16} />
                         Card ${(remainingCents / 100).toFixed(2)}
                       </button>
+                      {storeCreditBalance?.balance_cents && storeCreditBalance.balance_cents > 0 && (
+                        <button
+                          onClick={() => handleQuickPay("store_credit")}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 hover:border-emerald-500/50 hover:bg-emerald-500/20"
+                        >
+                          <Wallet size={16} />
+                          Credit ${(Math.min(remainingCents, storeCreditBalance.balance_cents) / 100).toFixed(2)}
+                        </button>
+                      )}
                     </div>
 
                     {/* Payment Method Selection */}
@@ -933,11 +1005,8 @@ const NewOrderModal = ({ onClose }: NewOrderModalProps) => {
                       <div className="grid grid-cols-3 gap-2">
                         {[
                           { value: "cash" as PaymentMethod, label: "Cash" },
-                          { value: "credit_card" as PaymentMethod, label: "Credit" },
-                          { value: "debit_card" as PaymentMethod, label: "Debit" },
+                          { value: "credit_card" as PaymentMethod, label: "Card" },
                           { value: "store_credit" as PaymentMethod, label: "Store Credit" },
-                          { value: "check" as PaymentMethod, label: "Check" },
-                          { value: "other" as PaymentMethod, label: "Other" },
                         ].map((method) => (
                           <button
                             key={method.value}

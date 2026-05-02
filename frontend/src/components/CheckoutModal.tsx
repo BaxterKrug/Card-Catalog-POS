@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, CreditCard, DollarSign, Check } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { X, CreditCard, DollarSign, Check, Wallet } from "lucide-react";
 import { 
   addOrderPayment,
   submitOrder,
@@ -8,6 +8,7 @@ import {
   type PaymentMethod,
   type OrderPaymentCreateInput 
 } from "../api/orders";
+import { getStoreCreditBalance } from "../api/storeCredit";
 
 interface CheckoutModalProps {
   order: Order;
@@ -21,6 +22,13 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch customer's store credit balance
+  const { data: storeCreditBalance } = useQuery({
+    queryKey: ["store-credit-balance", order.customer_id],
+    queryFn: () => getStoreCreditBalance(order.customer_id),
+    enabled: order.customer_id > 0,
+  });
+
   const addPaymentMutation = useMutation({
     mutationFn: ({ orderId, payment }: { orderId: number; payment: OrderPaymentCreateInput }) =>
       addOrderPayment(orderId, payment),
@@ -28,6 +36,7 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["orders", order.id] });
       queryClient.invalidateQueries({ queryKey: ["cash-register"] });
+      queryClient.invalidateQueries({ queryKey: ["store-credit-balance", order.customer_id] });
       setAmount("");
       setSelectedMethod(null);
       setError(null);
@@ -80,6 +89,15 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
       return;
     }
 
+    // Validate store credit balance
+    if (selectedMethod === "store_credit") {
+      const availableCredit = storeCreditBalance?.balance_cents || 0;
+      if (amountInCents > availableCredit) {
+        setError(`Insufficient store credit. Available: $${(availableCredit / 100).toFixed(2)}`);
+        return;
+      }
+    }
+
     setError(null);
 
     try {
@@ -122,12 +140,14 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
     { value: "cash", label: "Cash", icon: DollarSign },
     { value: "credit_card", label: "Credit Card", icon: CreditCard },
     { value: "debit_card", label: "Debit Card", icon: CreditCard },
-    { value: "store_credit", label: "Store Credit", icon: DollarSign },
+    { value: "store_credit", label: "Store Credit", icon: Wallet },
     { value: "check", label: "Check", icon: DollarSign },
     { value: "other", label: "Other", icon: DollarSign },
   ];
 
   const isFullyPaid = remainingCents === 0;
+  const availableStoreCreditCents = storeCreditBalance?.balance_cents || 0;
+  const canUseStoreCredit = availableStoreCreditCents > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
@@ -197,6 +217,31 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
               </div>
             )}
 
+            {/* Store Credit Balance Display - Always show for customers */}
+            {!isFullyPaid && order.customer_id > 0 && (
+              <div className={`rounded-xl border p-4 ${
+                canUseStoreCredit 
+                  ? 'border-emerald-500/30 bg-emerald-500/5' 
+                  : 'border-white/10 bg-white/5'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wallet size={20} className={canUseStoreCredit ? "text-emerald-400" : "text-white/40"} />
+                    <span className={`text-sm font-medium ${
+                      canUseStoreCredit ? "text-emerald-200" : "text-white/60"
+                    }`}>
+                      Store Credit Available
+                    </span>
+                  </div>
+                  <span className={`text-xl font-bold ${
+                    canUseStoreCredit ? "text-emerald-400" : "text-white/40"
+                  }`}>
+                    {formatCurrency(availableStoreCreditCents)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {!isFullyPaid && (
               <>
                 {/* Quick Pay Buttons */}
@@ -217,6 +262,15 @@ const CheckoutModal = ({ order, onClose, onComplete }: CheckoutModalProps) => {
                       <CreditCard size={16} />
                       Card {formatCurrency(remainingCents)}
                     </button>
+                    {canUseStoreCredit && (
+                      <button
+                        onClick={() => handleQuickPay("store_credit")}
+                        className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200 hover:border-emerald-500/50 hover:bg-emerald-500/20"
+                      >
+                        <Wallet size={16} />
+                        Use Store Credit {formatCurrency(Math.min(availableStoreCreditCents, remainingCents))}
+                      </button>
+                    )}
                   </div>
                 </div>
 

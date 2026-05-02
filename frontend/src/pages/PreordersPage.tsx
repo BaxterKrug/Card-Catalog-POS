@@ -1,12 +1,14 @@
-import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus, CheckCircle, ChevronDown, ChevronRight, Archive } from "lucide-react";
+import { Calendar, Loader2, Package, DollarSign, Plus, Filter, Edit2, Trash2, Search, X, CreditCard, UserPlus, CheckCircle, ChevronDown, ChevronRight, Archive, Wallet } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { usePreorderItems, usePreorderClaims, useCreatePreorderItem, useCreatePreorderSet, useCreatePreorderClaim, useUpdatePreorderItem, useRecordPreorderPayment, useCancelPreorderClaim, useFulfillPreorderClaim, useUnfulfillPreorderClaim } from "../hooks/usePreorders";
 import { useInventory } from "../hooks/useInventory";
 import { useCustomers } from "../hooks/useCustomers";
 import { useAuth } from "../contexts/AuthContext";
 import type { PreorderItem, PreorderClaim } from "../api/preorders";
 import NewCustomerModal from "../components/NewCustomerModal";
+import { getStoreCreditBalance } from "../api/storeCredit";
 
 const PreordersPage = () => {
   const { user } = useAuth();
@@ -57,6 +59,31 @@ const PreordersPage = () => {
   const cancelClaimMutation = useCancelPreorderClaim();
   const fulfillClaimMutation = useFulfillPreorderClaim();
   const unfulfillClaimMutation = useUnfulfillPreorderClaim();
+
+  // Fetch store credit balance for editing claim customer
+  const { data: editClaimStoreCreditBalance } = useQuery({
+    queryKey: ["store-credit-balance", editingClaim?.customer_id],
+    queryFn: () => getStoreCreditBalance(editingClaim!.customer_id),
+    enabled: !!editingClaim && editingClaim.customer_id > 0,
+  });
+
+  // Determine if all selected claims are for the same customer
+  const bulkPaymentCustomerId = useMemo(() => {
+    if (selectedClaimsForPayment.size === 0) return null;
+    const customerIds = Array.from(selectedClaimsForPayment).map(claimId => {
+      const claim = allClaims.find(c => c.id === claimId);
+      return claim?.customer_id;
+    });
+    const uniqueCustomers = new Set(customerIds.filter(Boolean));
+    return uniqueCustomers.size === 1 ? Array.from(uniqueCustomers)[0] : null;
+  }, [selectedClaimsForPayment, allClaims]);
+
+  // Fetch store credit balance for bulk payment if single customer
+  const { data: bulkPaymentStoreCreditBalance } = useQuery({
+    queryKey: ["store-credit-balance", bulkPaymentCustomerId],
+    queryFn: () => getStoreCreditBalance(bulkPaymentCustomerId!),
+    enabled: !!bulkPaymentCustomerId && bulkPaymentCustomerId > 0,
+  });
 
   // Initialize edit claim form state when modal opens
   useEffect(() => {
@@ -1780,6 +1807,15 @@ const PreordersPage = () => {
                 const formData = new FormData(e.currentTarget);
                 const isPaid = formData.get('is_paid') === 'true';
                 
+                // Check if payment status is actually changing
+                if (isPaid === editingClaim.is_paid) {
+                  // No change in payment status, just close the modal
+                  setEditingClaim(null);
+                  setEditClaimCashTendered('');
+                  setEditClaimPaymentMethod('cash');
+                  return;
+                }
+                
                 if (isPaid) {
                   const paymentAmount = formData.get('payment_amount') as string;
                   recordPaymentMutation.mutate({
@@ -1798,7 +1834,7 @@ const PreordersPage = () => {
                     }
                   });
                 } else {
-                  // Just update paid status to false
+                  // Update paid status to false (refund/reverse payment)
                   recordPaymentMutation.mutate({
                     claimId: editingClaim.id,
                     payment: {
@@ -1826,6 +1862,39 @@ const PreordersPage = () => {
                   className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white/60 cursor-not-allowed outline-none"
                 />
               </div>
+
+              {/* Store Credit Balance - Always visible */}
+              {editingClaim.customer_id > 0 && (
+                <div className={`rounded-lg border p-3 ${
+                  editClaimStoreCreditBalance?.balance_cents && editClaimStoreCreditBalance.balance_cents > 0
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : 'border-white/10 bg-white/5'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wallet size={18} className={
+                        editClaimStoreCreditBalance?.balance_cents && editClaimStoreCreditBalance.balance_cents > 0
+                          ? 'text-emerald-400'
+                          : 'text-white/40'
+                      } />
+                      <span className={`text-sm font-medium ${
+                        editClaimStoreCreditBalance?.balance_cents && editClaimStoreCreditBalance.balance_cents > 0
+                          ? 'text-emerald-200'
+                          : 'text-white/60'
+                      }`}>
+                        Store Credit Available
+                      </span>
+                    </div>
+                    <span className={`text-lg font-bold ${
+                      editClaimStoreCreditBalance?.balance_cents && editClaimStoreCreditBalance.balance_cents > 0
+                        ? 'text-emerald-400'
+                        : 'text-white/40'
+                    }`}>
+                      {formatCurrency(editClaimStoreCreditBalance?.balance_cents || 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm text-white/60">Product</label>
@@ -1893,6 +1962,24 @@ const PreordersPage = () => {
                     <option value="other" className="bg-gray-900 text-white">Other</option>
                   </select>
                 </div>
+
+                {/* Store Credit Validation - Only show when store credit selected */}
+                {editClaimPaymentMethod === 'store_credit' && editClaimStoreCreditBalance && (() => {
+                  const preorderItem = preorderItems.find(pi => pi.id === editingClaim.preorder_item_id);
+                  const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
+                  const requiredAmount = invItem?.msrp_cents || 0;
+                  const availableCredit = editClaimStoreCreditBalance.balance_cents;
+                  if (availableCredit < requiredAmount) {
+                    return (
+                      <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
+                        <p className="text-sm text-rose-300">
+                          ⚠️ Insufficient store credit. Need {formatCurrency(requiredAmount - availableCredit)} more.
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Cash Tendered - Only show for cash payments */}
                 {editClaimPaymentMethod === 'cash' && (
@@ -2600,6 +2687,10 @@ const PreordersPage = () => {
                 {Array.from(selectedClaimsForPayment).map(claimId => {
                   const claim = preorderClaims.find(c => c.id === claimId);
                   if (!claim) return null;
+                  
+                  // Skip already-paid claims (safety check)
+                  if (claim.is_paid) return null;
+                  
                   const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                   const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                   const customer = customers.find(c => c.id === claim.customer_id);
@@ -2636,7 +2727,7 @@ const PreordersPage = () => {
                   {formatCurrency(
                     Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
                       const claim = preorderClaims.find(c => c.id === claimId);
-                      if (!claim) return sum;
+                      if (!claim || claim.is_paid) return sum; // Skip paid claims
                       const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                       const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                       return sum + (invItem?.msrp_cents || 0);
@@ -2644,6 +2735,39 @@ const PreordersPage = () => {
                   )}
                 </span>
               </div>
+
+              {/* Store Credit Balance - Show when single customer */}
+              {bulkPaymentCustomerId && (
+                <div className={`rounded-lg border p-3 ${
+                  bulkPaymentStoreCreditBalance?.balance_cents && bulkPaymentStoreCreditBalance.balance_cents > 0
+                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                    : 'border-white/10 bg-white/5'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wallet size={18} className={
+                        bulkPaymentStoreCreditBalance?.balance_cents && bulkPaymentStoreCreditBalance.balance_cents > 0
+                          ? 'text-emerald-400'
+                          : 'text-white/40'
+                      } />
+                      <span className={`text-sm font-medium ${
+                        bulkPaymentStoreCreditBalance?.balance_cents && bulkPaymentStoreCreditBalance.balance_cents > 0
+                          ? 'text-emerald-200'
+                          : 'text-white/60'
+                      }`}>
+                        {customers.find(c => c.id === bulkPaymentCustomerId)?.name}'s Store Credit
+                      </span>
+                    </div>
+                    <span className={`text-lg font-bold ${
+                      bulkPaymentStoreCreditBalance?.balance_cents && bulkPaymentStoreCreditBalance.balance_cents > 0
+                        ? 'text-emerald-400'
+                        : 'text-white/40'
+                    }`}>
+                      {formatCurrency(bulkPaymentStoreCreditBalance?.balance_cents || 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Payment Form */}
@@ -2655,20 +2779,26 @@ const PreordersPage = () => {
                 const paymentNotes = formData.get('payment_notes') as string;
 
                 try {
-                  // Calculate total amount for cash register
+                  // Calculate total amount for cash register (skip already-paid claims)
                   const totalAmount = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
                     const claim = preorderClaims.find(c => c.id === claimId);
-                    if (!claim) return sum;
+                    if (!claim || claim.is_paid) return sum; // Skip paid claims
                     const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                     const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                     return sum + (invItem?.msrp_cents || 0);
                   }, 0);
 
-                  // Process each payment
+                  // Process each payment (skip already-paid claims)
                   await Promise.all(
                     Array.from(selectedClaimsForPayment).map(claimId => {
                       const claim = preorderClaims.find(c => c.id === claimId);
                       if (!claim) return Promise.resolve();
+                      
+                      // Skip if already paid
+                      if (claim.is_paid) {
+                        console.log(`Claim ${claimId} is already paid, skipping`);
+                        return Promise.resolve();
+                      }
                       
                       const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                       const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
@@ -2747,7 +2877,7 @@ const PreordersPage = () => {
                           {(() => {
                             const total = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
                               const claim = preorderClaims.find(c => c.id === claimId);
-                              if (!claim) return sum;
+                              if (!claim || claim.is_paid) return sum; // Skip paid claims
                               const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                               const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                               return sum + (invItem?.msrp_cents || 0);
@@ -2761,7 +2891,7 @@ const PreordersPage = () => {
                       {(() => {
                         const total = Array.from(selectedClaimsForPayment).reduce((sum, claimId) => {
                           const claim = preorderClaims.find(c => c.id === claimId);
-                          if (!claim) return sum;
+                          if (!claim || claim.is_paid) return sum; // Skip paid claims
                           const preorderItem = preorderItems.find(pi => pi.id === claim.preorder_item_id);
                           const invItem = preorderItem ? inventory.find(i => i.id === preorderItem.inventory_item_id) : null;
                           return sum + (invItem?.msrp_cents || 0);

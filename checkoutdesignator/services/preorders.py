@@ -30,6 +30,7 @@ from ..schemas import (
     PreorderReleaseRequest,
     PreorderSetCreate,
 )
+from . import store_credit
 from .customers import get_customer_or_raise
 from .inventory import reserve_units, release_units
 
@@ -279,31 +280,44 @@ def cancel_preorder_claim(session: Session, claim_id: int) -> PreorderClaim:
     if not preorder_item:
         raise NotFoundError("Preorder item missing for claim")
     
-    # If the claim was paid in cash, refund to cash register
-    if claim.is_paid and claim.payment_method == PaymentMethod.CASH:
-        # Find the current active cash register session
-        stmt = (
-            select(CashRegisterSession)
-            .where(CashRegisterSession.is_active == True)
-            .order_by(getattr(CashRegisterSession, "opened_at").desc())
-        )
-        cash_session = session.exec(stmt).first()
-        
-        if cash_session and claim.payment_amount_cents:
-            assert cash_session.id is not None, "Session ID should exist for persisted record"
-            # Create an ADJUSTMENT transaction (negative amount subtracts from register)
-            refund_txn = CashRegisterTransaction(
-                session_id=cash_session.id,
-                transaction_type=CashRegisterTransactionType.ADJUSTMENT,
-                amount_cents=-claim.payment_amount_cents,  # Negative because money goes out
-                description=f"Refund for cancelled preorder claim #{claim_id}",
-                created_by_user_id=1,  # System user for automated refunds
+    # If the claim was paid, refund based on payment method
+    if claim.is_paid and claim.payment_amount_cents:
+        if claim.payment_method == PaymentMethod.STORE_CREDIT:
+            # Return store credit to customer
+            store_credit.add_store_credit(
+                session=session,
+                customer_id=claim.customer_id,
+                amount_cents=claim.payment_amount_cents,
+                transaction_type=store_credit.StoreCreditTransactionType.REFUND,
+                user_id=1,  # System user for automated refunds
+                reference_type="preorder_cancellation",
+                reference_id=claim_id,
+                notes=f"Refund for cancelled preorder claim #{claim_id}",
             )
-            session.add(refund_txn)
+        elif claim.payment_method == PaymentMethod.CASH:
+            # Find the current active cash register session
+            stmt = (
+                select(CashRegisterSession)
+                .where(CashRegisterSession.is_active == True)
+                .order_by(getattr(CashRegisterSession, "opened_at").desc())
+            )
+            cash_session = session.exec(stmt).first()
             
-            # Update session balance (subtract the refund)
-            cash_session.current_balance_cents -= claim.payment_amount_cents
-            session.add(cash_session)
+            if cash_session:
+                assert cash_session.id is not None, "Session ID should exist for persisted record"
+                # Create an ADJUSTMENT transaction (negative amount subtracts from register)
+                refund_txn = CashRegisterTransaction(
+                    session_id=cash_session.id,
+                    transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+                    amount_cents=-claim.payment_amount_cents,  # Negative because money goes out
+                    description=f"Refund for cancelled preorder claim #{claim_id}",
+                    created_by_user_id=1,  # System user for automated refunds
+                )
+                session.add(refund_txn)
+                
+                # Update session balance (subtract the refund)
+                cash_session.current_balance_cents -= claim.payment_amount_cents
+                session.add(cash_session)
     
     # Release from preorder inventory allocation ONLY (do NOT touch main inventory)
     preorder_item.preorder_quantity_allocated -= claim.quantity_requested
@@ -368,7 +382,102 @@ def record_preorder_payment(session: Session, claim_id: int, payload: PreorderCl
     if payload.payment_amount_cents < 0:
         raise ValidationError("Payment amount cannot be negative")
     
-    # Record payment details (stored in perpetuity)
+    # Store old payment state to determine what actions to take
+    was_paid = claim.is_paid
+    old_payment_method = claim.payment_method
+    old_payment_amount = claim.payment_amount_cents or 0
+    
+    # Determine if we need to process/reverse payments
+    becoming_paid = not was_paid and payload.is_paid
+    becoming_unpaid = was_paid and not payload.is_paid
+    
+    # If changing from paid to unpaid, reverse the previous payment
+    if becoming_unpaid and old_payment_amount > 0:
+        if old_payment_method == PaymentMethod.STORE_CREDIT:
+            # Return store credit to customer
+            store_credit.add_store_credit(
+                session=session,
+                customer_id=claim.customer_id,
+                amount_cents=old_payment_amount,
+                transaction_type=store_credit.StoreCreditTransactionType.REFUND,
+                user_id=user_id,
+                reference_type="preorder_refund",
+                reference_id=claim_id,
+                notes=f"Refund for Preorder Claim #{claim_id} (payment reversed)",
+            )
+        elif old_payment_method == PaymentMethod.CASH:
+            # Find and reverse the cash register transaction
+            statement = select(CashRegisterTransaction).where(
+                CashRegisterTransaction.reference_type == "preorder",
+                CashRegisterTransaction.reference_id == claim_id
+            )
+            cash_txn = session.exec(statement).first()
+            
+            if cash_txn:
+                # Get the session this transaction belonged to
+                cash_session = session.get(CashRegisterSession, cash_txn.session_id)
+                if cash_session:
+                    cash_session.current_balance_cents -= old_payment_amount
+                    session.add(cash_session)
+                
+                # Create a reversal transaction for audit trail
+                statement = select(CashRegisterSession).where(
+                    CashRegisterSession.is_active == True
+                ).order_by(getattr(CashRegisterSession, "opened_at").desc())
+                active_session = session.exec(statement).first()
+                
+                if active_session:
+                    reversal_txn = CashRegisterTransaction(
+                        session_id=active_session.id or 0,
+                        transaction_type=CashRegisterTransactionType.ADJUSTMENT,
+                        amount_cents=-old_payment_amount,
+                        description=f"Refund for preorder claim #{claim_id} (payment reversed)",
+                        reference_type="preorder_refund",
+                        reference_id=claim_id,
+                        created_by_user_id=user_id,
+                    )
+                    session.add(reversal_txn)
+                
+                # Delete the original cash register transaction
+                session.delete(cash_txn)
+    
+    # If changing from unpaid to paid, process the new payment
+    if becoming_paid and payload.payment_amount_cents > 0:
+        if payload.payment_method == PaymentMethod.STORE_CREDIT:
+            # Deduct from customer's store credit balance
+            store_credit.deduct_store_credit(
+                session=session,
+                customer_id=claim.customer_id,
+                amount_cents=payload.payment_amount_cents,
+                user_id=user_id,
+                reference_type="preorder",
+                reference_id=claim_id,
+                notes=f"Payment for Preorder Claim #{claim_id}",
+            )
+        elif payload.payment_method == PaymentMethod.CASH:
+            # Record in cash register
+            statement = select(CashRegisterSession).where(
+                CashRegisterSession.is_active == True
+            ).order_by(getattr(CashRegisterSession, "opened_at").desc())
+            active_session = session.exec(statement).first()
+            
+            if active_session:
+                transaction = CashRegisterTransaction(
+                    session_id=active_session.id or 0,
+                    transaction_type=CashRegisterTransactionType.SALE,
+                    amount_cents=payload.payment_amount_cents,
+                    description=f"Preorder claim #{claim_id} payment",
+                    reference_type="preorder",
+                    reference_id=claim_id,
+                    created_by_user_id=user_id,
+                    notes=payload.payment_notes,
+                )
+                session.add(transaction)
+                
+                active_session.current_balance_cents += payload.payment_amount_cents
+                session.add(active_session)
+    
+    # Update payment details on the claim
     claim.is_paid = payload.is_paid
     claim.payment_amount_cents = payload.payment_amount_cents
     claim.payment_method = payload.payment_method
@@ -378,33 +487,6 @@ def record_preorder_payment(session: Session, claim_id: int, payload: PreorderCl
     
     session.add(claim)
     session.flush()
-    
-    # If payment is cash and is_paid is True, record it in the cash register
-    if payload.is_paid and payload.payment_method == PaymentMethod.CASH and payload.payment_amount_cents > 0:
-        # Get the active cash register session
-        statement = select(CashRegisterSession).where(
-            CashRegisterSession.is_active == True
-        ).order_by(getattr(CashRegisterSession, "opened_at").desc())
-        active_session = session.exec(statement).first()
-        
-        if active_session:
-            # Create a transaction record for the preorder sale
-            transaction = CashRegisterTransaction(
-                session_id=active_session.id or 0,
-                transaction_type=CashRegisterTransactionType.SALE,
-                amount_cents=payload.payment_amount_cents,
-                description=f"Preorder claim #{claim_id} payment",
-                reference_type="preorder",
-                reference_id=claim_id,
-                created_by_user_id=user_id,
-                notes=payload.payment_notes,
-            )
-            session.add(transaction)
-            
-            # Update the session balance
-            active_session.current_balance_cents += payload.payment_amount_cents
-            session.add(active_session)
-            session.flush()
     
     return claim
 

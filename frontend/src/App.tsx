@@ -11,6 +11,7 @@ import BuylistPage from "./pages/BuylistPage";
 import CashRegisterPage from "./pages/CashRegisterPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
+import CustomerPortalPage from "./pages/CustomerPortalPage";
 import { useAuth } from "./contexts/AuthContext";
 
 // Protected route wrapper that checks user role
@@ -26,6 +27,15 @@ function ProtectedRoute({ children, allowedRoles }: { children: ReactNode; allow
 
 function App() {
   const { isAuthenticated } = useAuth();
+
+  // Customer portal is publicly accessible
+  if (window.location.pathname === '/customer-portal') {
+    return (
+      <Routes>
+        <Route path="/customer-portal" element={<CustomerPortalPage />} />
+      </Routes>
+    );
+  }
 
   if (!isAuthenticated) {
     return <LoginPage />;

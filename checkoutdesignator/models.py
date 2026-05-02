@@ -73,6 +73,15 @@ class DiscountType(str, Enum):
     CUSTOM = "custom"
 
 
+class StoreCreditTransactionType(str, Enum):
+    REFUND = "refund"  # Credit from order refund
+    BUYLIST_PAYOUT = "buylist_payout"  # Credit from selling cards
+    MANUAL_ADJUSTMENT = "manual_adjustment"  # Staff adds/removes credit
+    GIFT_CARD = "gift_card"  # Gift card credit
+    PROMOTIONAL = "promotional"  # Promotional credit
+    PAYMENT_DEDUCTION = "payment_deduction"  # Credit used for payment
+
+
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
@@ -95,6 +104,7 @@ class Customer(SQLModel, table=True):
     phone: Optional[str] = Field(default=None)
     discord_id: Optional[str] = Field(default=None)
     default_discount_type: Optional[DiscountType] = Field(default=None)
+    store_credit_balance_cents: int = Field(default=0, ge=0)  # Store credit balance
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow, nullable=False)
     updated_at: datetime = Field(default_factory=utcnow, nullable=False)
@@ -102,6 +112,7 @@ class Customer(SQLModel, table=True):
     orders: List["Order"] = Relationship(back_populates="customer")
     preorder_orders: List["PreorderOrder"] = Relationship(back_populates="customer")
     preorder_claims: List["PreorderClaim"] = Relationship(back_populates="customer")
+    store_credit_transactions: List["StoreCreditTransaction"] = Relationship(back_populates="customer")
 
 
 class InventoryItem(SQLModel, table=True):
@@ -338,4 +349,20 @@ class CashRegisterTransaction(SQLModel, table=True):
     notes: Optional[str] = None
 
     session: Optional[CashRegisterSession] = Relationship(back_populates="transactions")
+    created_by: Optional["User"] = Relationship()
+
+
+class StoreCreditTransaction(SQLModel, table=True):
+    """Track store credit transactions for customers"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    customer_id: int = Field(foreign_key="customer.id", index=True)
+    transaction_type: StoreCreditTransactionType = Field(index=True)
+    amount_cents: int  # Positive for credit additions, negative for deductions
+    reference_type: Optional[str] = None  # e.g., "order", "preorder", "buylist"
+    reference_id: Optional[int] = None
+    created_by_user_id: int = Field(foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=utcnow, nullable=False)
+    notes: Optional[str] = None
+
+    customer: Optional["Customer"] = Relationship(back_populates="store_credit_transactions")
     created_by: Optional["User"] = Relationship()

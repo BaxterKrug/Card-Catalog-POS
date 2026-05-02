@@ -20,6 +20,7 @@ from ..models import (
 from ..schemas import OrderCreate, OrderItemCreate, OrderPaymentCreate
 from .customers import get_customer_or_raise
 from .inventory import get_item_or_raise, release_units, reserve_units
+from . import store_credit
 
 
 def create_order(session: Session, payload: OrderCreate) -> Order:
@@ -222,6 +223,18 @@ def add_order_payment(session: Session, order_id: int, payload: OrderPaymentCrea
     session.add(payment)
     session.flush()
     
+    # If payment is store credit, deduct from customer's balance
+    if payload.payment_method == PaymentMethod.STORE_CREDIT:
+        store_credit.deduct_store_credit(
+            session=session,
+            customer_id=order.customer_id,
+            amount_cents=payload.amount_cents,
+            user_id=user_id,
+            reference_type="order",
+            reference_id=order_id,
+            notes=f"Payment for Order #{order_id}",
+        )
+    
     # If payment is cash, record it in the cash register
     if payload.payment_method == PaymentMethod.CASH:
         # Get the active cash register session
@@ -342,6 +355,24 @@ def refund_order(session: Session, order_id: int) -> Order:
             # Update session balance
             cash_session.current_balance_cents -= total_cash_refund
             session.add(cash_session)
+    
+    # Issue store credit for the total refund amount (all payments)
+    all_payments_stmt = select(OrderPayment).where(OrderPayment.order_id == order_id)
+    all_payments = session.exec(all_payments_stmt).all()
+    total_refund_amount = sum(payment.amount_cents for payment in all_payments)
+    
+    if total_refund_amount > 0:
+        from ..models import StoreCreditTransactionType
+        store_credit.add_store_credit(
+            session=session,
+            customer_id=order.customer_id,
+            amount_cents=total_refund_amount,
+            transaction_type=StoreCreditTransactionType.REFUND,
+            user_id=1,  # System user for automated refunds
+            reference_type="order",
+            reference_id=order_id,
+            notes=f"Refund for Order #{order_id}",
+        )
     
     # Mark order as refunded
     order.status = OrderStatus.REFUNDED

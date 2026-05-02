@@ -8,6 +8,7 @@ export interface Customer {
   phone?: string | null;
   discord_id?: string | null;
   default_discount_type?: DiscountType | null;
+  store_credit_balance_cents: number;
   notes?: string | null;
   created_at: string;
   updated_at: string;

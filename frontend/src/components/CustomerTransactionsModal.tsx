@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { X, ShoppingCart, DollarSign, Loader2, Package, Calendar, User, CreditCard } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { X, ShoppingCart, DollarSign, Loader2, Package, Calendar, User, CreditCard, Wallet } from "lucide-react";
 import { useOrders } from "../hooks/useOrders";
 import { useBuylistTransactions } from "../hooks/useBuylist";
 import { usePreorderClaims, usePreorderItems } from "../hooks/usePreorders";
@@ -9,6 +10,8 @@ import { type Order } from "../api/orders";
 import { type PreorderClaim } from "../api/preorders";
 import { type BuylistTransaction } from "../api/buylist";
 import OrderDetailModal from "./OrderDetailModal";
+import StoreCreditModal from "./StoreCreditModal";
+import { getStoreCreditBalance } from "../api/storeCredit";
 
 interface CustomerTransactionsModalProps {
   customerId: number;
@@ -40,6 +43,13 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedPreorderClaim, setSelectedPreorderClaim] = useState<PreorderClaim | null>(null);
   const [selectedBuylistTxn, setSelectedBuylistTxn] = useState<BuylistTransaction | null>(null);
+  const [showStoreCreditModal, setShowStoreCreditModal] = useState(false);
+
+  // Fetch customer's store credit balance
+  const { data: storeCreditBalance } = useQuery({
+    queryKey: ["store-credit-balance", customerId],
+    queryFn: () => getStoreCreditBalance(customerId),
+  });
 
   // Filter orders for this customer
   const customerOrders = useMemo(() => {
@@ -220,7 +230,22 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 gap-4 border-b border-white/10 px-6 py-5 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 border-b border-white/10 px-6 py-5 sm:grid-cols-5">
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:col-span-1">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-emerald-300/70">
+              <Wallet size={14} />
+              Store Credit
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-emerald-400">
+              {formatCurrency(storeCreditBalance?.balance_cents || 0)}
+            </p>
+            <button
+              onClick={() => setShowStoreCreditModal(true)}
+              className="mt-2 text-xs text-emerald-300 hover:text-emerald-200 underline"
+            >
+              View History
+            </button>
+          </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/40">
               <ShoppingCart size={14} />
@@ -698,6 +723,15 @@ const CustomerTransactionsModal = ({ customerId, customerName, onClose }: Custom
           </div>
         );
       })()}
+
+      {/* Store Credit Modal */}
+      {showStoreCreditModal && (
+        <StoreCreditModal
+          customerId={customerId}
+          customerName={customerName}
+          onClose={() => setShowStoreCreditModal(false)}
+        />
+      )}
     </div>
   );
 };
