@@ -168,7 +168,7 @@ def api_set_buzzer_volume():
 
 @app.route("/api/timers/add", methods=["POST"])
 def add_timer():
-    if len(state["timers"]) < 3:
+    if len(state["timers"]) < 4:
         new_id = str(max([int(k) for k in state["timers"].keys()] + [0]) + 1)
         state["timers"][new_id] = {
             "label": f"Event {new_id}",

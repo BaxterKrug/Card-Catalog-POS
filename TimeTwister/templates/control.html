@@ -264,6 +264,7 @@ const PRESETS = [
   { label: 'Riftbound', minutes: 60 },
   { label: 'FF', minutes: 30 },
 ];
+const MAX_TIMERS = 4;
 let fetchInterval;
 const MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB limit keeps uploads quick
 
@@ -343,7 +344,7 @@ function render() {
 
   const addButton = document.getElementById('add-event');
   if (addButton) {
-    addButton.style.display = ids.length < 3 ? 'inline-block' : 'none';
+    addButton.style.display = ids.length < MAX_TIMERS ? 'inline-block' : 'none';
   }
 }
 
@@ -433,6 +434,7 @@ function createEventCard(id) {
     messageSection: card.querySelector('[data-role="message-section"]'),
     messageInput: card.querySelector(`#msg_${id}`),
     messageDisabled: card.querySelector('[data-role="message-disabled"]'),
+    imageInputRow: card.querySelector('[data-role="image-input"]'),
     imagePreview: card.querySelector('[data-role="image-preview"]'),
     clearImageButton: card.querySelector('[data-role="clear-image"]')
   };
@@ -445,6 +447,7 @@ function updateEventCard(card, timer, id) {
   if (!refs) {
     return;
   }
+  const imageUploadsAllowed = Object.keys(state.timers).length < MAX_TIMERS;
 
   const features = Object.assign({ timer: true, message: true, buzzer: false }, timer.features || {});
   const labelValue = timer.label || '';
@@ -528,6 +531,10 @@ function updateEventCard(card, timer, id) {
       refs.clearImageButton.style.display = 'none';
     }
   }
+
+  if (refs.imageInputRow) {
+    refs.imageInputRow.style.display = imageUploadsAllowed ? '' : 'none';
+  }
 }
 
 function updateFeatureButton(button, enabled, label) {
@@ -562,7 +569,7 @@ function toggleFeature(id, feature, enabled) {
 }
 
 function addEvent() {
-    if (Object.keys(state.timers).length < 3) {
+  if (Object.keys(state.timers).length < MAX_TIMERS) {
         post('/api/timers/add');
     }
 }
