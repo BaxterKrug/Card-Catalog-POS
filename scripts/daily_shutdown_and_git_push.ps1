@@ -2,6 +2,8 @@ param(
 	[switch]$CloseAllChrome = $true
 )
 
+# CCPOS_SCHEDULE_TIME=08:00
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
