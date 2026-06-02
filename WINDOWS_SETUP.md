@@ -69,6 +69,35 @@ python scripts/seed_staff.py
 
 This will start both the backend and frontend servers in separate windows.
 
+## Optional: Daily 8:00 AM Auto Shutdown + Git Push
+
+If you want Windows to close the project terminal windows and Chrome, then auto-commit and push to GitHub every day at 8:00 AM:
+
+```powershell
+cd "c:\Users\skgames\Documents\Card-Catalog-POS"
+.\scripts\register_8am_shutdown_task.ps1
+```
+
+This creates a scheduled task named `CCPOS-Daily-Shutdown-GitSync`.
+
+### Test it immediately
+
+```powershell
+Start-ScheduledTask -TaskName "CCPOS-Daily-Shutdown-GitSync"
+```
+
+### View the run log
+
+```powershell
+Get-Content .\logs\daily_shutdown_git.log -Tail 50
+```
+
+Notes:
+- The shutdown script closes PowerShell windows titled `CCPOS *` (these are automatically set by `start.ps1`).
+- It closes all Chrome windows/processes.
+- It runs `git add -A`, creates a commit if changes exist, and pushes to your current branch.
+- Make sure your Git remote and credentials are already configured on this machine.
+
 ## Troubleshooting
 
 ### PowerShell Execution Policy Error
