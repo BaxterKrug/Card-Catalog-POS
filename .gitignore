@@ -3,3 +3,4 @@ frontend/node_modules/.vite/
 *.pyc
 *.tsbuildinfo
 frontend/dist/
+TimeTwister/uploads/
