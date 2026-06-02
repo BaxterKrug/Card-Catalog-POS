@@ -11,6 +11,30 @@ if (-not (Test-Path $logDir)) {
 }
 
 $logFile = Join-Path $logDir "daily_shutdown_git.log"
+$repoRootLower = $repoRoot.ToLowerInvariant()
+
+function Get-ProcessByIdSafe {
+	param([int]$Id)
+	try {
+		return Get-Process -Id $Id -ErrorAction Stop
+	}
+	catch {
+		return $null
+	}
+}
+
+function Get-ProcessObjectsFromCim {
+	param([Microsoft.Management.Infrastructure.CimInstance[]]$CimProcesses)
+
+	$results = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+	foreach ($p in $CimProcesses) {
+		$proc = Get-ProcessByIdSafe -Id $p.ProcessId
+		if ($null -ne $proc) {
+			$results.Add($proc)
+		}
+	}
+	return @($results)
+}
 
 function Write-Log {
 	param([string]$Message)
@@ -47,14 +71,43 @@ function Close-ProcessWindows {
 try {
 	Write-Log "----- Daily shutdown + git sync started -----"
 
-	$ccposShells = @(Get-Process -Name powershell, pwsh -ErrorAction SilentlyContinue |
+	$ccposShellsByTitle = @(Get-Process -Name powershell, pwsh -ErrorAction SilentlyContinue |
 		Where-Object { $_.Id -ne $PID -and $_.MainWindowTitle -like "CCPOS *" })
 
+	# Fallback: catch PowerShell windows launched from this repo even if title wasn't set.
+	$cimPowershells = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" -ErrorAction SilentlyContinue |
+		Where-Object {
+			$cmd = $_.CommandLine
+			$cmd -and $cmd.ToLowerInvariant().Contains($repoRootLower)
+		})
+
+	$ccposShellsByCmd = @(Get-ProcessObjectsFromCim -CimProcesses $cimPowershells | Where-Object { $_.Id -ne $PID })
+
+	$allShellCandidates = @($ccposShellsByTitle + $ccposShellsByCmd)
+	$ccposShells = @($allShellCandidates | Group-Object -Property Id | ForEach-Object { $_.Group[0] })
+
 	if ($ccposShells.Count -gt 0) {
+		Write-Log ("Found {0} CCPOS PowerShell process(es) to close." -f $ccposShells.Count)
 		Close-ProcessWindows -Processes $ccposShells -Label "PowerShell"
 	}
 	else {
 		Write-Log "No tagged CCPOS PowerShell windows found to close."
+	}
+
+	# Also stop common dev server processes started from this repo (node/python/uvicorn) as a safety net.
+	$cimDevProcesses = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe' OR Name = 'python.exe' OR Name = 'uvicorn.exe'" -ErrorAction SilentlyContinue |
+		Where-Object {
+			$cmd = $_.CommandLine
+			$cmd -and $cmd.ToLowerInvariant().Contains($repoRootLower)
+		})
+
+	$devProcesses = @(Get-ProcessObjectsFromCim -CimProcesses $cimDevProcesses)
+	if ($devProcesses.Count -gt 0) {
+		Write-Log ("Found {0} CCPOS dev process(es) to close." -f $devProcesses.Count)
+		Close-ProcessWindows -Processes $devProcesses -Label "Dev"
+	}
+	else {
+		Write-Log "No CCPOS dev processes found to close."
 	}
 
 	if ($CloseAllChrome) {
